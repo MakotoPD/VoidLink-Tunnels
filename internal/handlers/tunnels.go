@@ -122,12 +122,18 @@ func (h *TunnelHandler) Create(c *gin.Context) {
 
 	// Allocate public ports
 	ports := make([]models.TunnelPort, len(req.Ports))
+	allocated := make(map[int]bool) // Track allocated ports in this request
+
 	for i, p := range req.Ports {
-		publicPort, err := h.allocatePort(ctx)
+		publicPort, err := h.allocatePort(ctx, allocated)
 		if err != nil {
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "No available ports"})
 			return
 		}
+
+		// Mark as allocated for subsequent iterations
+		allocated[publicPort] = true
+
 		ports[i] = models.TunnelPort{
 			Label:      p.Label,
 			LocalPort:  p.LocalPort,
@@ -396,8 +402,13 @@ func (h *TunnelHandler) fetchTunnelPorts(ctx context.Context, tunnelID uuid.UUID
 	return ports, nil
 }
 
-func (h *TunnelHandler) allocatePort(ctx context.Context) (int, error) {
+func (h *TunnelHandler) allocatePort(ctx context.Context, excludedPorts map[int]bool) (int, error) {
 	for port := h.config.MinPort; port <= h.config.MaxPort; port++ {
+		// specific check for excluded ports in this request
+		if excludedPorts[port] {
+			continue
+		}
+
 		var exists bool
 		database.Pool.QueryRow(ctx,
 			`SELECT EXISTS(SELECT 1 FROM tunnel_ports WHERE public_port = $1)`,

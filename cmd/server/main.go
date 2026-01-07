@@ -40,7 +40,7 @@ func main() {
 	emailService := services.NewEmailService(cfg)
 
 	// Initialize handlers
-	authHandler := handlers.NewAuthHandler(jwtManager, totpService, emailService)
+	authHandler := handlers.NewAuthHandler(cfg, jwtManager, totpService, emailService)
 	twoFactorHandler := handlers.NewTwoFactorHandler(totpService)
 	tunnelHandler := handlers.NewTunnelHandler(cfg, subdomainService, frpService)
 	healthHandler := handlers.NewHealthHandler(frpService)

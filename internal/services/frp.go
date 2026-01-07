@@ -85,7 +85,9 @@ func (f *FRPService) GenerateClientConfig(subdomain string, ports []models.Tunne
 
 	// Proxy sections for each port
 	for _, port := range ports {
-		proxyName := fmt.Sprintf("%s-%s", subdomain, strings.ToLower(strings.ReplaceAll(port.Label, " ", "-")))
+		// Ensure unique name: subdomain-label-protocol-publicPort
+		sanitizedLabel := strings.ToLower(strings.ReplaceAll(port.Label, " ", "-"))
+		proxyName := fmt.Sprintf("%s-%s-%s-%d", subdomain, sanitizedLabel, strings.ToLower(port.Protocol), port.PublicPort)
 		
 		sb.WriteString(fmt.Sprintf("[[proxies]]\n"))
 		sb.WriteString(fmt.Sprintf("name = \"%s\"\n", proxyName))

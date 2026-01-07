@@ -14,7 +14,7 @@ RUN go mod download
 COPY . .
 
 # Build
-RUN CGO_ENABLED=0 GOOS=linux go build -v -x -a -installsuffix cgo -o tunnel-api ./cmd/server
+RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o tunnel-api ./cmd/server
 
 # Runtime image
 FROM alpine:3.19

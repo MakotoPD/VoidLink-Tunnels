@@ -5,15 +5,16 @@ services:
     build: .
     container_name: tunnel-api
     restart: unless-stopped
+    # No ports - Coolify/Traefik handles routing
     environment:
       # Server
       - SERVER_PORT=8080
       - SERVER_HOST=0.0.0.0
       
-      # Database (Use Coolify's PostgreSQL service URL)
-      - DATABASE_URL=${DATABASE_URL:-postgres://postgres:RaciwID5lpiIviz6vBnm7jk7EUz83LKL2FU9Z1X8LEvyqLloOSxTl4nC7umyNPsB@eogckkkkkc0gwookgs4g8w8s:5432/postgres?sslmode=disable}
+      # Database - connects to postgres service below
+      - DATABASE_URL=postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-tunnelpass}@postgres:5432/${POSTGRES_DB:-tunneldb}?sslmode=disable
       
-      # JWT (Change these in Coolify secrets!)
+      # JWT
       - JWT_SECRET=${JWT_SECRET:-Morse-Amusable-Congrats-Itinerary-Duly-Pebble-Pastel-Grieving-Renter-Camping-Situated-Aorta7-Unweave-Resource-Awhile}
       - JWT_ACCESS_TTL=${JWT_ACCESS_TTL:-60}
       - JWT_REFRESH_TTL=${JWT_REFRESH_TTL:-7}
@@ -47,14 +48,14 @@ services:
     restart: unless-stopped
     environment:
       - POSTGRES_USER=${POSTGRES_USER:-postgres}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-RaciwID5lpiIviz6vBnm7jk7EUz83LKL2FU9Z1X8LEvyqLloOSxTl4nC7umyNPsB}
-      - POSTGRES_DB=${POSTGRES_DB:-postgres}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-tunnelpass}
+      - POSTGRES_DB=${POSTGRES_DB:-tunneldb}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     networks:
       - tunnel-network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-postgres}"]
+      test: ["CMD-SHELL", "pg_isready -U postgres -d tunneldb"]
       interval: 10s
       timeout: 5s
       retries: 5

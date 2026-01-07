@@ -15,14 +15,14 @@ services:
       - DATABASE_URL=postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-tunnelpass}@postgres:5432/${POSTGRES_DB:-tunneldb}?sslmode=disable
       
       # JWT
-      - JWT_SECRET=${JWT_SECRET:-Morse-Amusable-Congrats-Itinerary-Duly-Pebble-Pastel-Grieving-Renter-Camping-Situated-Aorta7-Unweave-Resource-Awhile}
+      - JWT_SECRET=${JWT_SECRET:-changeme_jwt_secret}
       - JWT_ACCESS_TTL=${JWT_ACCESS_TTL:-60}
       - JWT_REFRESH_TTL=${JWT_REFRESH_TTL:-7}
       
       # FRP Configuration
       - FRP_SERVER_ADDR=${FRP_SERVER_ADDR:-0.0.0.0}
       - FRP_SERVER_PORT=${FRP_SERVER_PORT:-7000}
-      - FRP_TOKEN=${FRP_TOKEN:-Gag-Residency-Posture-Grumbly-Chatting-Bok-Starved-Mocker2}
+      - FRP_TOKEN=${FRP_TOKEN:-changeme_frp_token}
       
       # Tunnel Configuration
       - MIN_PORT=${MIN_PORT:-20000}

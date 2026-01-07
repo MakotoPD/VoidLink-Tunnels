@@ -60,7 +60,7 @@ func (e *EmailService) SendPasswordReset(toEmail, resetToken string) error {
             </div>
 
             <div style="margin: 30px 0;">
-                <a href="minedash://reset-password?code=%s" style="background: linear-gradient(135deg, #3b82f6 0%%, #2dd4bf 100%%); color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;">Reset Password in App</a>
+                <a href="minedash://reset-password?code=%s" style="background-color: #3b82f6; border: 1px solid #3b82f6; color: #ffffff; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;">Reset Password in App</a>
             </div>
             
             <p class="message" style="margin-bottom:0">If you didn't request this, you can safely ignore this email.</p>

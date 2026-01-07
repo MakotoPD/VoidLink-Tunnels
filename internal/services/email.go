@@ -20,25 +20,56 @@ func (e *EmailService) IsConfigured() bool {
 	return e.config.SMTPHost != "" && e.config.SMTPUser != ""
 }
 
-func (e *EmailService) SendPasswordReset(toEmail, resetToken, resetURL string) error {
+func (e *EmailService) SendPasswordReset(toEmail, resetToken string) error {
 	if !e.IsConfigured() {
 		return fmt.Errorf("SMTP not configured")
 	}
 
-	subject := "MineDash - Password Reset"
-	body := fmt.Sprintf(`Hello,
+	subject := "MineDash - Password Reset Code"
+	
+	// Aesthetic HTML template with dark theme support
+	htmlBody := fmt.Sprintf(`
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f4f4f9; margin: 0; padding: 0; }
+        .container { max-width: 600px; margin: 40px auto; background-color: #ffffff; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.05); overflow: hidden; }
+        .header { background: linear-gradient(135deg, #3b82f6 0%%, #2dd4bf 100%%); padding: 30px; text-align: center; }
+        .header h1 { color: white; margin: 0; font-size: 24px; font-weight: 600; letter-spacing: 0.5px; }
+        .content { padding: 40px; color: #334155; text-align: center; }
+        .message { font-size: 16px; line-height: 1.6; margin-bottom: 30px; }
+        .code-box { background-color: #f1f5f9; border: 2px dashed #cbd5e1; border-radius: 8px; padding: 20px; margin: 20px 0; display: inline-block; }
+        .code { font-family: 'Consolas', 'Monaco', monospace; font-size: 32px; font-weight: bold; color: #0f172a; letter-spacing: 4px; }
+        .note { font-size: 13px; color: #94a3b8; margin-top: 30px; }
+        .footer { background-color: #f8fafc; padding: 20px; text-align: center; color: #94a3b8; font-size: 12px; border-top: 1px solid #e2e8f0; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>MineDash</h1>
+        </div>
+        <div class="content">
+            <h2>Password Reset Request</h2>
+            <p class="message">We received a request to reset your password. Use the code below to complete the process. This code will expire in 1 hour.</p>
+            
+            <div class="code-box">
+                <div class="code">%s</div>
+            </div>
+            
+            <p class="message" style="margin-bottom:0">If you didn't request this, you can safely ignore this email.</p>
+        </div>
+        <div class="footer">
+            &copy; 2026 MakotoPD. All rights reserved.<br>
+            This is an automated message, please do not reply.
+        </div>
+    </div>
+</body>
+</html>`, resetToken)
 
-You have requested to reset your password for MineDash Tunnels.
-
-Click the link below to reset your password (valid for 1 hour):
-%s?token=%s
-
-If you didn't request this, please ignore this email.
-
-Best regards,
-MineDash Team`, resetURL, resetToken)
-
-	return e.sendEmail(toEmail, subject, body)
+	return e.sendEmail(toEmail, subject, htmlBody)
 }
 
 func (e *EmailService) sendEmail(to, subject, body string) error {
@@ -48,8 +79,8 @@ func (e *EmailService) sendEmail(to, subject, body string) error {
 	user := e.config.SMTPUser
 	password := e.config.SMTPPassword
 
-	// Format message
-	message := fmt.Sprintf("From: %s\r\nTo: %s\r\nSubject: %s\r\nMIME-Version: 1.0\r\nContent-Type: text/plain; charset=\"utf-8\"\r\n\r\n%s",
+	// Format message with HTML content type
+	message := fmt.Sprintf("From: %s\r\nTo: %s\r\nSubject: %s\r\nMIME-Version: 1.0\r\nContent-Type: text/html; charset=\"utf-8\"\r\n\r\n%s",
 		from, to, subject, body)
 
 	// Connect to SMTP server

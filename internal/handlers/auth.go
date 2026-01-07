@@ -18,13 +18,15 @@ import (
 )
 
 type AuthHandler struct {
+	config       *config.Config
 	jwtManager   *utils.JWTManager
 	totpService  *services.TOTPService
 	emailService *services.EmailService
 }
 
-func NewAuthHandler(jwtManager *utils.JWTManager, totpService *services.TOTPService, emailService *services.EmailService) *AuthHandler {
+func NewAuthHandler(cfg *config.Config, jwtManager *utils.JWTManager, totpService *services.TOTPService, emailService *services.EmailService) *AuthHandler {
 	return &AuthHandler{
+		config:       cfg,
 		jwtManager:   jwtManager,
 		totpService:  totpService,
 		emailService: emailService,
@@ -145,6 +147,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		RefreshToken: refreshToken,
 		ExpiresIn:    h.jwtManager.GetAccessTTLSeconds(),
 		User:         user.ToResponse(),
+		FRPToken:     h.config.FRPToken,
 	})
 }
 
@@ -217,6 +220,7 @@ func (h *AuthHandler) Refresh(c *gin.Context) {
 		RefreshToken: newRefreshToken,
 		ExpiresIn:    h.jwtManager.GetAccessTTLSeconds(),
 		User:         user.ToResponse(),
+		FRPToken:     h.config.FRPToken,
 	})
 }
 
@@ -277,7 +281,7 @@ func (h *AuthHandler) ForgotPassword(c *gin.Context) {
 
 	// Always return success to prevent email enumeration
 	if err != nil {
-		c.JSON(http.StatusOK, gin.H{"message": "If the email exists, a reset link has been sent"})
+		c.JSON(http.StatusOK, gin.H{"message": "If the email exists, a reset code has been sent"})
 		return
 	}
 
@@ -303,9 +307,9 @@ func (h *AuthHandler) ForgotPassword(c *gin.Context) {
 	}
 
 	// Send email if email service is configured
+	// Send email if email service is configured
 	if h.emailService != nil && h.emailService.IsConfigured() {
-		resetURL := "https://minedash.makoto.com.pl/reset-password" // Frontend URL
-		go h.emailService.SendPasswordReset(req.Email, resetToken, resetURL)
+		go h.emailService.SendPasswordReset(req.Email, resetToken)
 	}
 
 	c.JSON(http.StatusOK, gin.H{

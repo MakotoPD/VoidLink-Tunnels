@@ -49,6 +49,7 @@ type AuthResponse struct {
 	RefreshToken string       `json:"refresh_token"`
 	ExpiresIn    int          `json:"expires_in"` // seconds
 	User         UserResponse `json:"user"`
+	FRPToken     string       `json:"frp_token"`
 }
 
 type RefreshRequest struct {

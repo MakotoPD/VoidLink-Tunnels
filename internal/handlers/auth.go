@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
 
+	"tunnel-api/internal/config"
 	"tunnel-api/internal/database"
 	"tunnel-api/internal/middleware"
 	"tunnel-api/internal/models"

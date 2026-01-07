@@ -29,6 +29,13 @@ type Config struct {
 	MaxTunnels int
 	Domain     string
 	Region     string
+
+	// SMTP for password reset
+	SMTPHost     string
+	SMTPPort     int
+	SMTPUser     string
+	SMTPPassword string
+	SMTPFrom     string
 }
 
 func Load() *Config {
@@ -56,6 +63,13 @@ func Load() *Config {
 		MaxTunnels: getEnvInt("MAX_TUNNELS", 3),
 		Domain:     getEnv("DOMAIN", "eu.makoto.com.pl"),
 		Region:     getEnv("REGION", "eu"),
+
+		// SMTP
+		SMTPHost:     getEnv("SMTP_HOST", ""),
+		SMTPPort:     getEnvInt("SMTP_PORT", 587),
+		SMTPUser:     getEnv("SMTP_USER", ""),
+		SMTPPassword: getEnv("SMTP_PASSWORD", ""),
+		SMTPFrom:     getEnv("SMTP_FROM", "noreply@makoto.com.pl"),
 	}
 }
 

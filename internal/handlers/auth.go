@@ -18,14 +18,16 @@ import (
 )
 
 type AuthHandler struct {
-	jwtManager  *utils.JWTManager
-	totpService *services.TOTPService
+	jwtManager   *utils.JWTManager
+	totpService  *services.TOTPService
+	emailService *services.EmailService
 }
 
-func NewAuthHandler(jwtManager *utils.JWTManager, totpService *services.TOTPService) *AuthHandler {
+func NewAuthHandler(jwtManager *utils.JWTManager, totpService *services.TOTPService, emailService *services.EmailService) *AuthHandler {
 	return &AuthHandler{
-		jwtManager:  jwtManager,
-		totpService: totpService,
+		jwtManager:   jwtManager,
+		totpService:  totpService,
+		emailService: emailService,
 	}
 }
 
@@ -251,4 +253,129 @@ func (h *AuthHandler) Logout(c *gin.Context) {
 	database.Pool.Exec(ctx, `DELETE FROM refresh_tokens WHERE token_hash = $1`, tokenHash)
 
 	c.JSON(http.StatusOK, gin.H{"message": "Logged out successfully"})
+}
+
+// POST /api/auth/forgot-password
+func (h *AuthHandler) ForgotPassword(c *gin.Context) {
+	var req struct {
+		Email string `json:"email" binding:"required,email"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid email"})
+		return
+	}
+
+	req.Email = strings.ToLower(strings.TrimSpace(req.Email))
+	ctx := context.Background()
+
+	// Check if user exists
+	var userID uuid.UUID
+	err := database.Pool.QueryRow(ctx,
+		`SELECT id FROM users WHERE email = $1`,
+		req.Email,
+	).Scan(&userID)
+
+	// Always return success to prevent email enumeration
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"message": "If the email exists, a reset link has been sent"})
+		return
+	}
+
+	// Generate reset token
+	resetToken, tokenHash, expiresAt, err := h.jwtManager.GenerateRefreshToken()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate reset token"})
+		return
+	}
+
+	// Delete any existing reset tokens for this user
+	database.Pool.Exec(ctx, `DELETE FROM password_reset_tokens WHERE user_id = $1`, userID)
+
+	// Save reset token (expires in 1 hour)
+	expiresAt = time.Now().Add(1 * time.Hour)
+	_, err = database.Pool.Exec(ctx,
+		`INSERT INTO password_reset_tokens (user_id, token_hash, expires_at) VALUES ($1, $2, $3)`,
+		userID, tokenHash, expiresAt,
+	)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save reset token"})
+		return
+	}
+
+	// Send email if email service is configured
+	if h.emailService != nil && h.emailService.IsConfigured() {
+		resetURL := "https://minedash.makoto.com.pl/reset-password" // Frontend URL
+		go h.emailService.SendPasswordReset(req.Email, resetToken, resetURL)
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "If the email exists, a reset link has been sent",
+		"token":   resetToken, // Remove in production - only for testing!
+	})
+}
+
+// POST /api/auth/reset-password
+func (h *AuthHandler) ResetPassword(c *gin.Context) {
+	var req struct {
+		Token       string `json:"token" binding:"required"`
+		NewPassword string `json:"new_password" binding:"required,min=8"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request"})
+		return
+	}
+
+	tokenHash := h.jwtManager.HashToken(req.Token)
+	ctx := context.Background()
+
+	// Find and validate reset token
+	var tokenID uuid.UUID
+	var userID uuid.UUID
+	var expiresAt time.Time
+	var used bool
+	err := database.Pool.QueryRow(ctx,
+		`SELECT id, user_id, expires_at, used FROM password_reset_tokens WHERE token_hash = $1`,
+		tokenHash,
+	).Scan(&tokenID, &userID, &expiresAt, &used)
+
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid or expired reset token"})
+		return
+	}
+
+	if used {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Reset token already used"})
+		return
+	}
+
+	if time.Now().After(expiresAt) {
+		database.Pool.Exec(ctx, `DELETE FROM password_reset_tokens WHERE id = $1`, tokenID)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Reset token expired"})
+		return
+	}
+
+	// Hash new password
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.NewPassword), bcrypt.DefaultCost)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to process password"})
+		return
+	}
+
+	// Update password
+	_, err = database.Pool.Exec(ctx,
+		`UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2`,
+		string(hashedPassword), userID,
+	)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update password"})
+		return
+	}
+
+	// Mark token as used
+	database.Pool.Exec(ctx, `UPDATE password_reset_tokens SET used = TRUE WHERE id = $1`, tokenID)
+
+	// Invalidate all refresh tokens for this user (force re-login)
+	database.Pool.Exec(ctx, `DELETE FROM refresh_tokens WHERE user_id = $1`, userID)
+
+	c.JSON(http.StatusOK, gin.H{"message": "Password reset successfully"})
 }

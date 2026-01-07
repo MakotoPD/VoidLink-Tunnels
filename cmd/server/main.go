@@ -37,9 +37,10 @@ func main() {
 	totpService := services.NewTOTPService("MineDash Tunnels")
 	subdomainService, _ := services.NewSubdomainService("wordlist/words.txt")
 	frpService := services.NewFRPService(cfg.FRPServerAddr, cfg.FRPServerPort, cfg.FRPToken, cfg.Domain)
+	emailService := services.NewEmailService(cfg)
 
 	// Initialize handlers
-	authHandler := handlers.NewAuthHandler(jwtManager, totpService)
+	authHandler := handlers.NewAuthHandler(jwtManager, totpService, emailService)
 	twoFactorHandler := handlers.NewTwoFactorHandler(totpService)
 	tunnelHandler := handlers.NewTunnelHandler(cfg, subdomainService, frpService)
 	healthHandler := handlers.NewHealthHandler(frpService)
@@ -78,6 +79,8 @@ func main() {
 			auth.POST("/login", authHandler.Login)
 			auth.POST("/refresh", authHandler.Refresh)
 			auth.POST("/logout", authHandler.Logout)
+			auth.POST("/forgot-password", authHandler.ForgotPassword)
+			auth.POST("/reset-password", authHandler.ResetPassword)
 		}
 
 		// Protected routes

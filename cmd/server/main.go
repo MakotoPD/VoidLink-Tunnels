@@ -34,7 +34,7 @@ func main() {
 
 	// Initialize services
 	jwtManager := utils.NewJWTManager(cfg.JWTSecret, cfg.JWTAccessTokenTTL, cfg.JWTRefreshTokenTTL)
-	totpService := services.NewTOTPService("MineDash Tunnels")
+	totpService := services.NewTOTPService("VoidLink Tunnels")
 	subdomainService, _ := services.NewSubdomainService("wordlist/words.txt")
 	frpService := services.NewFRPService(cfg.FRPServerAddr, cfg.FRPServerPort, cfg.FRPToken, cfg.Domain)
 	emailService := services.NewEmailService(cfg)

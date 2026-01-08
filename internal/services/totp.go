@@ -29,10 +29,15 @@ func (s *TOTPService) GenerateSecret() (string, error) {
 
 // GenerateKey creates an OTP key for QR code generation
 func (s *TOTPService) GenerateKey(email, secret string) (*otp.Key, error) {
+	secretBytes, err := base32.StdEncoding.WithPadding(base32.NoPadding).DecodeString(secret)
+	if err != nil {
+		return nil, err
+	}
+
 	return totp.Generate(totp.GenerateOpts{
 		Issuer:      s.issuer,
 		AccountName: email,
-		Secret:      []byte(secret),
+		Secret:      secretBytes,
 		SecretSize:  20,
 	})
 }

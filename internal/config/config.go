@@ -61,7 +61,7 @@ func Load() *Config {
 		MinPort:    getEnvInt("MIN_PORT", 20000),
 		MaxPort:    getEnvInt("MAX_PORT", 30000),
 		MaxTunnels: getEnvInt("MAX_TUNNELS", 3),
-		Domain:     getEnv("DOMAIN", "eu.makoto.com.pl"),
+		Domain:     getEnv("DOMAIN", "eu.yourdomain.com"),
 		Region:     getEnv("REGION", "eu"),
 
 		// SMTP
@@ -69,7 +69,7 @@ func Load() *Config {
 		SMTPPort:     getEnvInt("SMTP_PORT", 587),
 		SMTPUser:     getEnv("SMTP_USER", ""),
 		SMTPPassword: getEnv("SMTP_PASSWORD", ""),
-		SMTPFrom:     getEnv("SMTP_FROM", "noreply@makoto.com.pl"),
+		SMTPFrom:     getEnv("SMTP_FROM", "noreply@yourdomain.com"),
 	}
 }
 

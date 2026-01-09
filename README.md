@@ -1,75 +1,193 @@
 # Tunnel API - VoidLink Backend
 
-Backend service written in Go (Gin) for the VoidLink Tunnel System.
+Backend service written in Go (Gin) for the VoidLink Tunnel System. This API manages user accounts, authenticates users, and orchestrates tunnel creation by communicating with an FRP (Fast Reverse Proxy) server.
 
-## Quick Deploy with Coolify
+## Architecture
 
-1. **In Coolify, create a new project** and select "Docker Compose".
-2. **Source**: Provide the Git repository URL or upload files directly.
-3. **Environment Variables** (set in Coolify Secrets):
+The system consists of two main components:
+1.  **Tunnel API (This Service)**: Handles user logic, database, and generates configs for clients.
+2.  **FRP Server (External)**: The actual reverse proxy that tunnels traffic. You MUST have an FRP server running for this API to function correctly.
 
-```bash
-# Database
-DATABASE_URL=postgres://tunnel:PASSWORD@postgres:5432/tunneldb?sslmode=disable
-POSTGRES_PASSWORD=your-secure-db-password
+---
 
-# Security
-JWT_SECRET=your-very-long-secret-key-min-32-chars
-FRP_TOKEN=token-from-your-frps-server
+## 1. FRP Server Configuration (REQUIRED)
 
-# Domain configuration
-DOMAIN=eu.makoto.com.pl
+Before installing the API, you must set up an `frps` (FRP Server) instance on a server with a public IP.
 
-# SMTP (Required for password reset)
-SMTP_HOST=smtp.mailgun.org
-SMTP_PORT=587
-SMTP_USER=postmaster@your-domain.com
-SMTP_PASSWORD=your-smtp-key
-SMTP_FROM=noreply@your-domain.com (optional)
+1.  Download `frp` from [GitHub Releases](https://github.com/fatedier/frp/releases).
+2.  Create a configuration file `frps.toml` on your server:
+
+```toml
+# /etc/frp/frps.toml
+
+# Address to bind the server to (0.0.0.0 allows external connections)
+bindAddr = "0.0.0.0"
+bindPort = 7000
+
+# Authentication token - MUST match FRP_TOKEN in the API config
+auth.method = "token"
+auth.token = "change-this-to-a-secure-random-token"
+
+# Dashboard (Optional, for monitoring)
+webServer.addr = "0.0.0.0"
+webServer.port = 7500
+webServer.user = "admin"
+webServer.password = "admin-password"
+
+# Allowed ports for user tunnels
+allowPorts = [
+  { start = 20000, end = 30000 }
+]
 ```
 
-4. **Ports**:
-   - `8080` → Tunnel API (HTTP)
-   
-5. **Domain**: Set the domain, e.g., `tunnel-api.makoto.com.pl` in Coolify.
+3.  Run the FRP server:
+    ```bash
+    ./frps -c frps.toml
+    ```
 
-## FRP Server Configuration
+---
 
-The FRP Server must run separately (not within the API Docker container, unless you use a custom image). Ensure that:
-- Port `7000` is open for FRP control.
-- Ports `20000-30000` are open for tunnels (TCP/UDP).
-- The token in `frps.toml` matches the `FRP_TOKEN` variable.
+## 2. Installation: Docker (Recommended)
 
-## Environment Variables
+The easiest way to run the API is using Docker Compose.
 
-| Variable | Description | Default Value |
+1.  **Clone the repository**:
+    ```bash
+    git clone https://github.com/MakotoPD/minedash-backend.git
+    cd minedash-backend
+    ```
+
+2.  **Create `.env` file**:
+    ```bash
+    cp .env.example .env
+    ```
+    Edit `.env` and fill in your details (Database URL, JWT Secret, FRP Token from step 1).
+
+3.  **Run with Docker Compose**:
+    ```bash
+    docker-compose up -d --build
+    ```
+
+### Example `docker-compose.yml`
+
+```yaml
+version: '3.8'
+
+services:
+  api:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      - SERVER_PORT=8080
+      - DATABASE_URL=postgres://user:pass@db:5432/tunneldb?sslmode=disable
+      - JWT_SECRET=secure-jwt-secret
+      - FRP_TOKEN=your-frp-token-here
+      - FRP_SERVER_ADDR=x.x.x.x
+    depends_on:
+      - db
+
+  db:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: pass
+      POSTGRES_DB: tunneldb
+    volumes:
+      - db_data:/var/lib/postgresql/data
+
+volumes:
+  db_data:
+```
+
+---
+
+## 3. Installation: Manual (No Docker)
+
+If you prefer to run the binary directly on your system.
+
+### Prerequisites
+- **Go 1.22+** installed.
+- **PostgreSQL** database running.
+
+### Steps
+
+1.  **Clone the repository**:
+    ```bash
+    git clone https://github.com/MakotoPD/minedash-backend.git
+    cd minedash-backend
+    ```
+
+2.  **Download dependencies**:
+    ```bash
+    go mod download
+    ```
+
+3.  **Build the application**:
+    ```bash
+    go build -o tunnel-api cmd/server/main.go
+    ```
+
+4.  **Set Environment Variables**:
+    You can use a `.env` file or export them in your shell.
+
+    **Linux/MacOS**:
+    ```bash
+    export DATABASE_URL="postgres://user:pass@localhost:5432/tunneldb?sslmode=disable"
+    export JWT_SECRET="your-secret"
+    export FRP_TOKEN="your-frp-token"
+    # ... any other variables
+    ```
+
+    **Windows (PowerShell)**:
+    ```powershell
+    $env:DATABASE_URL="postgres://user:pass@localhost:5432/tunneldb?sslmode=disable"
+    $env:JWT_SECRET="your-secret"
+    $env:FRP_TOKEN="your-frp-token"
+    ```
+
+5.  **Run the application**:
+    ```bash
+    ./tunnel-api
+    ```
+    (Or `.\tunnel-api.exe` on Windows)
+
+---
+
+## Configuration Variables
+
+Configure these in your `.env` file or Docker environment.
+
+| Variable | Description | Default / Example |
 |---------|------|------------------|
 | **Server** |
-| `SERVER_PORT` | API Port | `8080` |
-| `SERVER_HOST` | API Host | `0.0.0.0` |
-| `GIN_MODE` | Gin Mode (debug/release) | `release` (if set) |
+| `SERVER_PORT` | Port the API listens on | `8080` |
+| `SERVER_HOST` | Host interface to bind to | `0.0.0.0` |
+| `GIN_MODE` | Gin framework mode | `release` or `debug` |
 | **Database** |
-| `DATABASE_URL` | PostgreSQL connection string | `postgres://tunnel:tunnel@postgres:5432/tunneldb...` |
+| `DATABASE_URL` | PostgreSQL connection string | `postgres://u:p@host:5432/db` |
 | **Security** |
-| `JWT_SECRET` | JWT Signing Key | ❗ **REQUIRED** |
+| `JWT_SECRET` | Secret key for signing tokens | ❗ **REQUIRED** (min 32 chars) |
 | `JWT_ACCESS_TTL` | Access token validity (minutes) | `60` |
 | `JWT_REFRESH_TTL` | Refresh token validity (days) | `7` |
 | **FRP Integration** |
-| `FRP_SERVER_ADDR` | Public address of FRP server | `0.0.0.0` |
-| `FRP_SERVER_PORT` | FRP Control Port | `7000` |
-| `FRP_TOKEN` | FRP Authorization Token | ❗ **REQUIRED** |
+| `FRP_SERVER_ADDR` | Public IP/Domain of your FRP Server | `0.0.0.0` |
+| `FRP_SERVER_PORT` | FRP Server Bind Port (Control Port) | `7000` |
+| `FRP_TOKEN` | Auth Token (Must match `frps.toml`) | ❗ **REQUIRED** |
 | **Tunnels Config** |
-| `MIN_PORT` | Minimum tunnel port | `20000` |
-| `MAX_PORT` | Maximum tunnel port | `30000` |
-| `MAX_TUNNELS` | Tunnels per user limit | `3` |
-| `DOMAIN` | Main domain for subdomains | `eu.makoto.com.pl` |
-| `REGION` | Region (for display) | `eu` |
+| `MIN_PORT` | Start of port range for allocation | `20000` |
+| `MAX_PORT` | End of port range for allocation | `30000` |
+| `MAX_TUNNELS` | Tunnels allowed per user | `3` |
+| `DOMAIN` | Base domain for subdomains | `eu.makoto.com.pl` |
+| `REGION` | Region identifier | `eu` |
 | **SMTP / Mail** |
-| `SMTP_HOST` | SMTP Server Host | - |
-| `SMTP_PORT` | SMTP Server Port | `587` |
+| `SMTP_HOST` | SMTP Host (e.g. Mailgun/SendGrid) | - |
+| `SMTP_PORT` | SMTP Port | `587` |
 | `SMTP_USER` | SMTP Username | - |
 | `SMTP_PASSWORD`| SMTP Password | - |
-| `SMTP_FROM` | Sender Address | `noreply@makoto.com.pl` |
+| `SMTP_FROM` | Email sender address | `noreply@yourdomain.com` |
+
+---
 
 ## API Endpoints
 
@@ -80,24 +198,24 @@ The FRP Server must run separately (not within the API Docker container, unless 
 - `POST /api/auth/login` - Login (returns Access & Refresh Token)
 - `POST /api/auth/refresh` - Refresh token
 - `POST /api/auth/logout` - Logout
-- `POST /api/auth/forgot-password` - Request password reset (sends email)
-- `POST /api/auth/reset-password` - Set new password using code
+- `POST /api/auth/forgot-password` - Request password reset
+- `POST /api/auth/reset-password` - Reset password with code
 
-### Protected (Requires Bearer Token)
+### Protected (Requires `Authorization: Bearer <token>`)
 
 #### User
-- `GET /api/auth/me` - Get current user details
+- `GET /api/auth/me` - Get current user info
 
 #### Two-Factor Authentication (2FA)
-- `POST /api/auth/2fa/setup` - Generate TOTP secret (returns QR code)
-- `POST /api/auth/2fa/verify` - Verify code and enable 2FA
+- `POST /api/auth/2fa/setup` - Generate TOTP secret
+- `POST /api/auth/2fa/verify` - Activate 2FA
 - `POST /api/auth/2fa/disable` - Disable 2FA
 
 #### Tunnels
-- `GET /api/tunnels` - List user tunnels
-- `POST /api/tunnels` - Create new tunnel
-- `GET /api/tunnels/:id` - Get tunnel details
+- `GET /api/tunnels` - List my tunnels
+- `POST /api/tunnels` - Create tunnel
+- `GET /api/tunnels/:id` - Get details
 - `DELETE /api/tunnels/:id` - Delete tunnel
-- `POST /api/tunnels/:id/start` - Start tunnel (generates client config)
-- `POST /api/tunnels/:id/stop` - Stop tunnel (releases port)
-- `GET /api/tunnels/:id/config` - Get FRPC configuration for tunnel
+- `POST /api/tunnels/:id/start` - Start tunnel
+- `POST /api/tunnels/:id/stop` - Stop tunnel
+- `GET /api/tunnels/:id/config` - Get FRPC configuration

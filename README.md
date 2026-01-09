@@ -1,4 +1,4 @@
-![banner](https://i.imgur.com/RjVD66e.png)
+![banner](https://i.imgur.com/JSBWYIt.png)
 
 # Tunnel API - VoidLink Backend
 

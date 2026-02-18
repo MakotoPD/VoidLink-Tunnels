@@ -6,17 +6,19 @@ services:
     container_name: tunnel-api
     restart: unless-stopped
     ports:
-      # REST API (put behind nginx/caddy for HTTPS)
-      - "8080:8080"
-      # Tunnel control channel (VoidLink desktop client — raw TCP, NOT via reverse proxy)
+      # Raw TCP — direct host port, bypasses Traefik (VoidLink desktop client)
       - "${TUNNEL_PORT:-7001}:${TUNNEL_PORT:-7001}"
-      # Shared Minecraft TCP proxy (players connect here)
+      # Raw TCP — direct host port, bypasses Traefik (Minecraft players)
       - "${MC_PROXY_PORT:-25565}:${MC_PROXY_PORT:-25565}"
-      # Shared HTTP proxy (Dynmap / BlueMap)
-      - "${HTTP_PROXY_PORT:-8081}:${HTTP_PROXY_PORT:-8081}"
       # UDP voice chat port pool
-      - "${MIN_PORT:-20000}-${MAX_PORT:-20100}:${MIN_PORT:-20000}-${MAX_PORT:-20100}"
       - "${MIN_PORT:-20000}-${MAX_PORT:-20100}:${MIN_PORT:-20000}-${MAX_PORT:-20100}/udp"
+    labels:
+      # Traefik — REST API (HTTPS via domain)
+      - "traefik.enable=true"
+      - "traefik.http.routers.voidlink-api.rule=Host(`${DOMAIN_API:-api.yourdomain.com}`)"
+      - "traefik.http.routers.voidlink-api.entrypoints=websecure"
+      - "traefik.http.routers.voidlink-api.tls.certresolver=letsencrypt"
+      - "traefik.http.services.voidlink-api.loadbalancer.server.port=8080"
     environment:
       # Server
       - SERVER_PORT=8080
@@ -53,6 +55,7 @@ services:
         condition: service_healthy
     networks:
       - tunnel-network
+      - dokploy-network   # required for Traefik routing in Dokploy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
       interval: 30s
@@ -81,6 +84,8 @@ services:
 networks:
   tunnel-network:
     driver: bridge
+  dokploy-network:
+    external: true
 
 volumes:
   postgres_data:

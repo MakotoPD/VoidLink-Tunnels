@@ -1,0 +1,10 @@
+{
+  "$schema": "https://schema.railpack.com",
+  "provider": "go",
+  "build": {
+    "cmd": "go build -o tunnel-api ./cmd/server"
+  },
+  "deploy": {
+    "cmd": "./tunnel-api"
+  }
+}

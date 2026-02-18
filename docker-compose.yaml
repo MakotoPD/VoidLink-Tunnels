@@ -6,11 +6,17 @@ services:
     container_name: tunnel-api
     restart: unless-stopped
     ports:
-      # Tunnel control port (VoidLink desktop app connects here)
+      # REST API (put behind nginx/caddy for HTTPS)
+      - "8080:8080"
+      # Tunnel control channel (VoidLink desktop client — raw TCP, NOT via reverse proxy)
       - "${TUNNEL_PORT:-7001}:${TUNNEL_PORT:-7001}"
-      # Public game ports (players connect here)
-      - "${MIN_PORT:-20000}-${MAX_PORT:-30000}:${MIN_PORT:-20000}-${MAX_PORT:-30000}"
-      - "${MIN_PORT:-20000}-${MAX_PORT:-30000}:${MIN_PORT:-20000}-${MAX_PORT:-30000}/udp"
+      # Shared Minecraft TCP proxy (players connect here)
+      - "${MC_PROXY_PORT:-25565}:${MC_PROXY_PORT:-25565}"
+      # Shared HTTP proxy (Dynmap / BlueMap)
+      - "${HTTP_PROXY_PORT:-8081}:${HTTP_PROXY_PORT:-8081}"
+      # UDP voice chat port pool
+      - "${MIN_PORT:-20000}-${MAX_PORT:-20100}:${MIN_PORT:-20000}-${MAX_PORT:-20100}"
+      - "${MIN_PORT:-20000}-${MAX_PORT:-20100}:${MIN_PORT:-20000}-${MAX_PORT:-20100}/udp"
     environment:
       # Server
       - SERVER_PORT=8080
@@ -24,12 +30,14 @@ services:
       - JWT_ACCESS_TTL=${JWT_ACCESS_TTL:-60}
       - JWT_REFRESH_TTL=${JWT_REFRESH_TTL:-7}
 
-      # Built-in tunnel server (replaces FRP)
+      # Built-in tunnel server
       - TUNNEL_PORT=${TUNNEL_PORT:-7001}
+      - MC_PROXY_PORT=${MC_PROXY_PORT:-25565}
+      - HTTP_PROXY_PORT=${HTTP_PROXY_PORT:-8081}
 
       # Tunnel configuration
       - MIN_PORT=${MIN_PORT:-20000}
-      - MAX_PORT=${MAX_PORT:-30000}
+      - MAX_PORT=${MAX_PORT:-20100}
       - MAX_TUNNELS=${MAX_TUNNELS:-3}
       - DOMAIN=${DOMAIN:-eu.yourdomain.com}
       - REGION=${REGION:-eu}
@@ -65,7 +73,7 @@ services:
     networks:
       - tunnel-network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d tunneldb"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-tunneldb}"]
       interval: 10s
       timeout: 5s
       retries: 5

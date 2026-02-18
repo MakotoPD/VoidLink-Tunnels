@@ -1,0 +1,10 @@
+# Nixpacks configuration for Dokploy / Railway
+# https://nixpacks.com/docs/configuration/file
+
+[phases.build]
+cmds = [
+  "go build -o tunnel-api ./cmd/server"
+]
+
+[start]
+cmd = "./tunnel-api"

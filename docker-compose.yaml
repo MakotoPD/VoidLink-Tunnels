@@ -10,8 +10,9 @@ services:
       - "${MC_PROXY_PORT:-25565}:${MC_PROXY_PORT:-25565}"
       # Raw TCP — HTTP proxy (Dynmap / BlueMap), bypasses Traefik
       - "${HTTP_PROXY_PORT:-8081}:${HTTP_PROXY_PORT:-8081}"
-      # UDP voice chat port pool
-      - "${MIN_PORT:-20000}-${MAX_PORT:-20050}:${MIN_PORT:-20000}-${MAX_PORT:-20050}/udp"
+      # UDP voice chat — ports added individually to avoid slow Docker range binding
+      # Add more ports in Dokploy UI or duplicate lines below as needed
+      - "${MIN_PORT:-20000}:${MIN_PORT:-20000}/udp"
     labels:
       # Traefik — REST API (HTTPS via domain)
       - "traefik.enable=true"

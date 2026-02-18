@@ -11,7 +11,7 @@ services:
       # Raw TCP — HTTP proxy (Dynmap / BlueMap), bypasses Traefik
       - "${HTTP_PROXY_PORT:-8081}:${HTTP_PROXY_PORT:-8081}"
       # UDP voice chat port pool
-      - "${MIN_PORT:-20000}-${MAX_PORT:-20100}:${MIN_PORT:-20000}-${MAX_PORT:-20100}/udp"
+      - "${MIN_PORT:-20000}-${MAX_PORT:-20050}:${MIN_PORT:-20000}-${MAX_PORT:-20050}/udp"
     labels:
       # Traefik — REST API (HTTPS via domain)
       - "traefik.enable=true"
@@ -55,7 +55,6 @@ services:
         condition: service_healthy
     networks:
       - tunnel-network
-      - dokploy-network   # required for Traefik routing in Dokploy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
       interval: 30s
@@ -84,8 +83,6 @@ services:
 networks:
   tunnel-network:
     driver: bridge
-  dokploy-network:
-    external: true
 
 volumes:
   postgres_data:

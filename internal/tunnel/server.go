@@ -309,12 +309,20 @@ func (s *Server) readControlLoop(client *ClientConn) {
 			connID := parts[1]
 			data, err := hex.DecodeString(parts[2])
 			if err != nil {
+				log.Printf("[UDP] DROP: invalid hex in UDP_REPLY for conn %s: %v", connID, err)
 				continue
 			}
 			// Route reply back to player using persistent session map
 			if entryRaw, ok := s.udpPlayerMap.Load(connID); ok {
 				entry := entryRaw.(*udpPlayerEntry)
-				_, _ = entry.pc.WriteTo(data, entry.addr)
+				n, werr := entry.pc.WriteTo(data, entry.addr)
+				if werr != nil {
+					log.Printf("[UDP] DROP: failed to write reply to player %s: %v", connID, werr)
+				} else {
+					log.Printf("[UDP] → player %s: %d bytes (voice reply)", connID, n)
+				}
+			} else {
+				log.Printf("[UDP] DROP: no player entry for connID=%s (expired?)", connID)
 			}
 		}
 	}
@@ -336,18 +344,20 @@ func (s *Server) startUDPPortListener(publicPort int, tunnelID string, localPort
 	addr := fmt.Sprintf("0.0.0.0:%d", publicPort)
 	pc, err := net.ListenPacket("udp", addr)
 	if err != nil {
-		log.Printf("[Tunnel] Failed to listen on UDP %s: %v", addr, err)
+		log.Printf("[UDP] Failed to listen on :%d: %v", publicPort, err)
 		return
 	}
 	s.udpListeners.Store(publicPort, pc)
-	log.Printf("[Tunnel] UDP voice chat on :%d → tunnel %s (local:%d)", publicPort, tunnelID, localPort)
+	log.Printf("[UDP] Listening on :%d → tunnel %s → local port %d", publicPort, tunnelID, localPort)
 
 	buf := make([]byte, 65535)
 	for {
 		n, remoteAddr, err := pc.ReadFrom(buf)
 		if err != nil {
+			log.Printf("[UDP] Listener on :%d closed: %v", publicPort, err)
 			return
 		}
+		log.Printf("[UDP] ← player %s sent %d bytes (pub:%d)", remoteAddr, n, publicPort)
 		data := make([]byte, n)
 		copy(data, buf[:n])
 		go s.handleUDPPacket(pc, remoteAddr, data, tunnelID, localPort)
@@ -357,6 +367,7 @@ func (s *Server) startUDPPortListener(publicPort int, tunnelID string, localPort
 func (s *Server) handleUDPPacket(pc net.PacketConn, addr net.Addr, data []byte, tunnelID string, localPort int) {
 	clientRaw, ok := s.clients.Load(tunnelID)
 	if !ok {
+		log.Printf("[UDP] DROP: no VoidLink client connected for tunnel %s", tunnelID)
 		return
 	}
 	client := clientRaw.(*ClientConn)
@@ -367,7 +378,11 @@ func (s *Server) handleUDPPacket(pc net.PacketConn, addr net.Addr, data []byte, 
 	s.udpPlayerMap.Store(connID, &udpPlayerEntry{pc: pc, addr: addr})
 
 	hexData := hex.EncodeToString(data)
-	_ = client.send(fmt.Sprintf("UDP_PKT %s %d %s", connID, localPort, hexData))
+	if err := client.send(fmt.Sprintf("UDP_PKT %s %d %s", connID, localPort, hexData)); err != nil {
+		log.Printf("[UDP] DROP: failed to send UDP_PKT to client (tunnel %s): %v", tunnelID, err)
+	} else {
+		log.Printf("[UDP] → client: UDP_PKT connID=%s localPort=%d len=%d", connID, localPort, len(data))
+	}
 }
 
 // ---- Data Connection Handler ----

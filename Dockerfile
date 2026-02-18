@@ -3,8 +3,6 @@ FROM golang:1.23-alpine AS builder
 
 WORKDIR /app
 
-RUN apk add --no-cache gcc musl-dev
-
 COPY go.mod go.sum ./
 RUN go mod download
 
@@ -36,7 +34,7 @@ EXPOSE 7001
 # Shared Minecraft TCP proxy
 EXPOSE 25565
 # Shared HTTP proxy (Dynmap / BlueMap)
-EXPOSE 80
+EXPOSE 8081
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
     CMD curl -f http://localhost:8080/health || exit 1

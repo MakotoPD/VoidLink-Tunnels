@@ -11,9 +11,6 @@ services:
       # Raw TCP — HTTP proxy (Dynmap / BlueMap), bypasses Traefik
       - "${HTTP_PROXY_PORT:-8081}:${HTTP_PROXY_PORT:-8081}"
       # UDP voice chat — ports added individually to avoid slow Docker range binding
-      # Add more ports in Dokploy UI or duplicate lines below as needed
-      - "${MIN_PORT:-20000}:${MIN_PORT:-20000}/udp"
-      - "${EXPOSED_PORTS}/udp"
     labels:
       # Traefik — REST API (HTTPS via domain)
       - "traefik.enable=true"
@@ -26,7 +23,6 @@ services:
       - SERVER_PORT=8080
       - SERVER_HOST=0.0.0.0
 
-      - EXPOSED_PORTS=20000-30000
       # Database
       - DATABASE_URL=postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-tunnelpass}@postgres:5432/${POSTGRES_DB:-tunneldb}?sslmode=disable
 

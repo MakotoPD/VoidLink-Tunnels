@@ -18,10 +18,10 @@ type Config struct {
 	JWTAccessTokenTTL  int // minutes
 	JWTRefreshTokenTTL int // days
 
-	// FRP
-	FRPServerAddr string
-	FRPServerPort int
-	FRPToken      string
+	// Built-in tunnel server
+	TunnelPort    int // port for client control connections (default 7001)
+	MCProxyPort   int // shared Minecraft TCP listener (default 25565)
+	HTTPProxyPort int // shared HTTP proxy listener (default 80)
 
 	// Tunnels
 	MinPort    int
@@ -52,10 +52,10 @@ func Load() *Config {
 		JWTAccessTokenTTL:  getEnvInt("JWT_ACCESS_TTL", 60),      // 1 hour
 		JWTRefreshTokenTTL: getEnvInt("JWT_REFRESH_TTL", 7),      // 7 days
 
-		// FRP
-		FRPServerAddr: getEnv("FRP_SERVER_ADDR", "0.0.0.0"),
-		FRPServerPort: getEnvInt("FRP_SERVER_PORT", 7000),
-		FRPToken:      getEnv("FRP_TOKEN", "frp-secret-token"),
+		// Built-in tunnel server
+		TunnelPort:    getEnvInt("TUNNEL_PORT", 7001),
+		MCProxyPort:   getEnvInt("MC_PROXY_PORT", 25565),
+		HTTPProxyPort: getEnvInt("HTTP_PROXY_PORT", 80),
 
 		// Tunnels
 		MinPort:    getEnvInt("MIN_PORT", 20000),

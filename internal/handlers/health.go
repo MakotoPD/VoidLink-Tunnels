@@ -9,18 +9,15 @@ import (
 )
 
 type HealthHandler struct {
-	frpService *services.FRPService
+	tunnelService *services.TunnelService
 }
 
-func NewHealthHandler(frpService *services.FRPService) *HealthHandler {
-	return &HealthHandler{
-		frpService: frpService,
-	}
+func NewHealthHandler(tunnelService *services.TunnelService) *HealthHandler {
+	return &HealthHandler{tunnelService: tunnelService}
 }
 
 // GET /health
 func (h *HealthHandler) Health(c *gin.Context) {
-	// Check database
 	dbOK := true
 	if err := database.Pool.Ping(c.Request.Context()); err != nil {
 		dbOK = false
@@ -36,7 +33,6 @@ func (h *HealthHandler) Health(c *gin.Context) {
 	c.JSON(httpStatus, gin.H{
 		"status":   status,
 		"database": dbOK,
-		"active_tunnels": h.frpService.GetActiveProxyCount(),
 	})
 }
 

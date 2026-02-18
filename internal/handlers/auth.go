@@ -148,7 +148,6 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		RefreshToken: refreshToken,
 		ExpiresIn:    h.jwtManager.GetAccessTTLSeconds(),
 		User:         user.ToResponse(),
-		FRPToken:     h.config.FRPToken,
 	})
 }
 
@@ -221,7 +220,6 @@ func (h *AuthHandler) Refresh(c *gin.Context) {
 		RefreshToken: newRefreshToken,
 		ExpiresIn:    h.jwtManager.GetAccessTTLSeconds(),
 		User:         user.ToResponse(),
-		FRPToken:     h.config.FRPToken,
 	})
 }
 

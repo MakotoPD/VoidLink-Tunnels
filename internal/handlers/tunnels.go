@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"strconv"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -19,14 +18,14 @@ import (
 type TunnelHandler struct {
 	config           *config.Config
 	subdomainService *services.SubdomainService
-	frpService       *services.FRPService
+	tunnelService    *services.TunnelService
 }
 
-func NewTunnelHandler(cfg *config.Config, subdomainSvc *services.SubdomainService, frpSvc *services.FRPService) *TunnelHandler {
+func NewTunnelHandler(cfg *config.Config, subdomainSvc *services.SubdomainService, tunnelSvc *services.TunnelService) *TunnelHandler {
 	return &TunnelHandler{
 		config:           cfg,
 		subdomainService: subdomainSvc,
-		frpService:       frpSvc,
+		tunnelService:    tunnelSvc,
 	}
 }
 
@@ -36,7 +35,9 @@ func (h *TunnelHandler) List(c *gin.Context) {
 	ctx := context.Background()
 
 	rows, err := database.Pool.Query(ctx,
-		`SELECT id, user_id, name, subdomain, region, is_active, created_at, updated_at 
+		`SELECT id, user_id, name, subdomain, region, is_active,
+		        mc_local_port, http_local_port, udp_local_port, udp_public_port,
+		        created_at, updated_at
 		 FROM tunnels WHERE user_id = $1 ORDER BY created_at DESC`,
 		userID,
 	)
@@ -49,12 +50,13 @@ func (h *TunnelHandler) List(c *gin.Context) {
 	tunnels := []models.TunnelResponse{}
 	for rows.Next() {
 		var t models.Tunnel
-		if err := rows.Scan(&t.ID, &t.UserID, &t.Name, &t.Subdomain, &t.Region, &t.IsActive, &t.CreatedAt, &t.UpdatedAt); err != nil {
+		if err := rows.Scan(
+			&t.ID, &t.UserID, &t.Name, &t.Subdomain, &t.Region, &t.IsActive,
+			&t.MCLocalPort, &t.HTTPLocalPort, &t.UDPLocalPort, &t.UDPPublicPort,
+			&t.CreatedAt, &t.UpdatedAt,
+		); err != nil {
 			continue
 		}
-
-		// Fetch ports for this tunnel
-		t.Ports, _ = h.fetchTunnelPorts(ctx, t.ID)
 		tunnels = append(tunnels, t.ToResponse(h.config.Domain))
 	}
 
@@ -73,21 +75,25 @@ func (h *TunnelHandler) Create(c *gin.Context) {
 		return
 	}
 
+	// Apply defaults
+	if req.MCLocalPort == 0 {
+		req.MCLocalPort = 25565
+	}
+	if req.UDPLocalPort == 0 {
+		req.UDPLocalPort = 24454
+	}
+
 	userID, _ := middleware.GetUserID(c)
 	ctx := context.Background()
 
 	// Check tunnel limit
 	var count int
-	err := database.Pool.QueryRow(ctx,
-		`SELECT COUNT(*) FROM tunnels WHERE user_id = $1`,
-		userID,
-	).Scan(&count)
-
-	if err != nil {
+	if err := database.Pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM tunnels WHERE user_id = $1`, userID,
+	).Scan(&count); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check tunnel limit"})
 		return
 	}
-
 	if count >= h.config.MaxTunnels {
 		c.JSON(http.StatusForbidden, gin.H{
 			"error": fmt.Sprintf("Tunnel limit reached (%d/%d)", count, h.config.MaxTunnels),
@@ -97,94 +103,60 @@ func (h *TunnelHandler) Create(c *gin.Context) {
 
 	// Generate unique subdomain
 	var subdomain string
+	var err error
 	for attempts := 0; attempts < 10; attempts++ {
 		subdomain, err = h.subdomainService.Generate()
 		if err != nil {
 			continue
 		}
-
-		// Check if subdomain is unique
 		var exists bool
 		database.Pool.QueryRow(ctx,
-			`SELECT EXISTS(SELECT 1 FROM tunnels WHERE subdomain = $1)`,
-			subdomain,
+			`SELECT EXISTS(SELECT 1 FROM tunnels WHERE subdomain = $1)`, subdomain,
 		).Scan(&exists)
-
 		if !exists {
 			break
 		}
+		subdomain = ""
 	}
-
 	if subdomain == "" {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate unique subdomain"})
 		return
 	}
 
-	// Allocate public ports
-	ports := make([]models.TunnelPort, len(req.Ports))
-	allocated := make(map[int]bool) // Track allocated ports in this request
-
-	for i, p := range req.Ports {
-		publicPort, err := h.allocatePort(ctx, allocated)
-		if err != nil {
-			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "No available ports"})
-			return
-		}
-
-		// Mark as allocated for subsequent iterations
-		allocated[publicPort] = true
-
-		ports[i] = models.TunnelPort{
-			Label:      p.Label,
-			LocalPort:  p.LocalPort,
-			PublicPort: publicPort,
-			Protocol:   p.Protocol,
-		}
+	// Allocate a stable UDP public port from the pool
+	udpPublicPort, err := h.allocateUDPPort(ctx)
+	if err != nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "No available UDP ports"})
+		return
 	}
 
-	// Create tunnel
+	// Create tunnel record
 	var tunnelID uuid.UUID
 	err = database.Pool.QueryRow(ctx,
-		`INSERT INTO tunnels (user_id, name, subdomain, region) 
-		 VALUES ($1, $2, $3, $4) RETURNING id`,
+		`INSERT INTO tunnels (user_id, name, subdomain, region, mc_local_port, http_local_port, udp_local_port, udp_public_port)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		 RETURNING id`,
 		userID, req.Name, subdomain, h.config.Region,
+		req.MCLocalPort, req.HTTPLocalPort, req.UDPLocalPort, udpPublicPort,
 	).Scan(&tunnelID)
-
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create tunnel"})
 		return
 	}
 
-	// Create ports
-	for i := range ports {
-		ports[i].TunnelID = tunnelID
-		var portID uuid.UUID
-		err = database.Pool.QueryRow(ctx,
-			`INSERT INTO tunnel_ports (tunnel_id, label, local_port, public_port, protocol) 
-			 VALUES ($1, $2, $3, $4, $5) RETURNING id`,
-			tunnelID, ports[i].Label, ports[i].LocalPort, ports[i].PublicPort, ports[i].Protocol,
-		).Scan(&portID)
-
-		if err != nil {
-			// Rollback: delete tunnel (CASCADE will delete ports)
-			database.Pool.Exec(ctx, `DELETE FROM tunnels WHERE id = $1`, tunnelID)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to allocate ports"})
-			return
-		}
-		ports[i].ID = portID
+	t := models.Tunnel{
+		ID:            tunnelID,
+		UserID:        userID,
+		Name:          req.Name,
+		Subdomain:     subdomain,
+		Region:        h.config.Region,
+		IsActive:      false,
+		MCLocalPort:   req.MCLocalPort,
+		HTTPLocalPort: req.HTTPLocalPort,
+		UDPLocalPort:  req.UDPLocalPort,
+		UDPPublicPort: &udpPublicPort,
 	}
-
-	tunnel := models.Tunnel{
-		ID:        tunnelID,
-		UserID:    userID,
-		Name:      req.Name,
-		Subdomain: subdomain,
-		Region:    h.config.Region,
-		IsActive:  false,
-		Ports:     ports,
-	}
-
-	c.JSON(http.StatusCreated, tunnel.ToResponse(h.config.Domain))
+	c.JSON(http.StatusCreated, t.ToResponse(h.config.Domain))
 }
 
 // GET /api/tunnels/:id
@@ -200,17 +172,21 @@ func (h *TunnelHandler) Get(c *gin.Context) {
 
 	var t models.Tunnel
 	err = database.Pool.QueryRow(ctx,
-		`SELECT id, user_id, name, subdomain, region, is_active, created_at, updated_at 
+		`SELECT id, user_id, name, subdomain, region, is_active,
+		        mc_local_port, http_local_port, udp_local_port, udp_public_port,
+		        created_at, updated_at
 		 FROM tunnels WHERE id = $1 AND user_id = $2`,
 		tunnelID, userID,
-	).Scan(&t.ID, &t.UserID, &t.Name, &t.Subdomain, &t.Region, &t.IsActive, &t.CreatedAt, &t.UpdatedAt)
-
+	).Scan(
+		&t.ID, &t.UserID, &t.Name, &t.Subdomain, &t.Region, &t.IsActive,
+		&t.MCLocalPort, &t.HTTPLocalPort, &t.UDPLocalPort, &t.UDPPublicPort,
+		&t.CreatedAt, &t.UpdatedAt,
+	)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Tunnel not found"})
 		return
 	}
 
-	t.Ports, _ = h.fetchTunnelPorts(ctx, t.ID)
 	c.JSON(http.StatusOK, t.ToResponse(h.config.Domain))
 }
 
@@ -225,25 +201,21 @@ func (h *TunnelHandler) Delete(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
 	ctx := context.Background()
 
-	// Check ownership and get run ID if active
-	var frpRunID *string
-	var isActive bool
+	var t models.Tunnel
 	err = database.Pool.QueryRow(ctx,
-		`SELECT frp_run_id, is_active FROM tunnels WHERE id = $1 AND user_id = $2`,
+		`SELECT id, subdomain, is_active, mc_local_port, http_local_port, udp_local_port, udp_public_port
+		 FROM tunnels WHERE id = $1 AND user_id = $2`,
 		tunnelID, userID,
-	).Scan(&frpRunID, &isActive)
-
+	).Scan(&t.ID, &t.Subdomain, &t.IsActive, &t.MCLocalPort, &t.HTTPLocalPort, &t.UDPLocalPort, &t.UDPPublicPort)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Tunnel not found"})
 		return
 	}
 
-	// Stop tunnel if active
-	if isActive && frpRunID != nil {
-		h.frpService.StopProxy(*frpRunID)
+	if t.IsActive {
+		h.tunnelService.StopTunnel(t)
 	}
 
-	// Delete (CASCADE will handle ports)
 	_, err = database.Pool.Exec(ctx, `DELETE FROM tunnels WHERE id = $1`, tunnelID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete tunnel"})
@@ -266,42 +238,34 @@ func (h *TunnelHandler) Start(c *gin.Context) {
 
 	var t models.Tunnel
 	err = database.Pool.QueryRow(ctx,
-		`SELECT id, user_id, name, subdomain, region, is_active FROM tunnels WHERE id = $1 AND user_id = $2`,
+		`SELECT id, subdomain, is_active, mc_local_port, http_local_port, udp_local_port, udp_public_port
+		 FROM tunnels WHERE id = $1 AND user_id = $2`,
 		tunnelID, userID,
-	).Scan(&t.ID, &t.UserID, &t.Name, &t.Subdomain, &t.Region, &t.IsActive)
-
+	).Scan(&t.ID, &t.Subdomain, &t.IsActive, &t.MCLocalPort, &t.HTTPLocalPort, &t.UDPLocalPort, &t.UDPPublicPort)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Tunnel not found"})
 		return
 	}
-
 	if t.IsActive {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Tunnel is already active"})
 		return
 	}
 
-	t.Ports, _ = h.fetchTunnelPorts(ctx, t.ID)
-
-	// Register proxies with FRP server
-	runID, err := h.frpService.RegisterProxies(t.Subdomain, t.Ports)
-	if err != nil {
+	if err := h.tunnelService.StartTunnel(t); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to start tunnel: " + err.Error()})
 		return
 	}
 
-	// Update tunnel status
 	_, err = database.Pool.Exec(ctx,
-		`UPDATE tunnels SET is_active = TRUE, frp_run_id = $1, updated_at = NOW() WHERE id = $2`,
-		runID, tunnelID,
+		`UPDATE tunnels SET is_active = TRUE, updated_at = NOW() WHERE id = $1`, tunnelID,
 	)
-
 	if err != nil {
-		h.frpService.StopProxy(runID)
+		h.tunnelService.StopTunnel(t)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update tunnel status"})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "Tunnel started", "run_id": runID})
+	c.JSON(http.StatusOK, gin.H{"message": "Tunnel started"})
 }
 
 // POST /api/tunnels/:id/stop
@@ -315,32 +279,26 @@ func (h *TunnelHandler) Stop(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
 	ctx := context.Background()
 
-	var frpRunID *string
-	var isActive bool
+	var t models.Tunnel
 	err = database.Pool.QueryRow(ctx,
-		`SELECT frp_run_id, is_active FROM tunnels WHERE id = $1 AND user_id = $2`,
+		`SELECT id, subdomain, is_active, mc_local_port, http_local_port, udp_local_port, udp_public_port
+		 FROM tunnels WHERE id = $1 AND user_id = $2`,
 		tunnelID, userID,
-	).Scan(&frpRunID, &isActive)
-
+	).Scan(&t.ID, &t.Subdomain, &t.IsActive, &t.MCLocalPort, &t.HTTPLocalPort, &t.UDPLocalPort, &t.UDPPublicPort)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Tunnel not found"})
 		return
 	}
-
-	if !isActive {
+	if !t.IsActive {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Tunnel is not active"})
 		return
 	}
 
-	if frpRunID != nil {
-		h.frpService.StopProxy(*frpRunID)
-	}
+	h.tunnelService.StopTunnel(t)
 
 	_, err = database.Pool.Exec(ctx,
-		`UPDATE tunnels SET is_active = FALSE, frp_run_id = NULL, updated_at = NOW() WHERE id = $1`,
-		tunnelID,
+		`UPDATE tunnels SET is_active = FALSE, updated_at = NOW() WHERE id = $1`, tunnelID,
 	)
-
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update tunnel status"})
 		return
@@ -349,80 +307,18 @@ func (h *TunnelHandler) Stop(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "Tunnel stopped"})
 }
 
-// GET /api/tunnels/:id/config
-func (h *TunnelHandler) GetConfig(c *gin.Context) {
-	tunnelID, err := uuid.Parse(c.Param("id"))
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid tunnel ID"})
-		return
-	}
+// ---- Helpers ----
 
-	userID, _ := middleware.GetUserID(c)
-	ctx := context.Background()
-
-	var t models.Tunnel
-	err = database.Pool.QueryRow(ctx,
-		`SELECT id, subdomain FROM tunnels WHERE id = $1 AND user_id = $2`,
-		tunnelID, userID,
-	).Scan(&t.ID, &t.Subdomain)
-
-	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Tunnel not found"})
-		return
-	}
-
-	t.Ports, _ = h.fetchTunnelPorts(ctx, t.ID)
-
-	config := h.frpService.GenerateClientConfig(t.Subdomain, t.Ports)
-	c.JSON(http.StatusOK, models.TunnelConfigResponse{
-		FRPConfig: config,
-	})
-}
-
-// Helper functions
-func (h *TunnelHandler) fetchTunnelPorts(ctx context.Context, tunnelID uuid.UUID) ([]models.TunnelPort, error) {
-	rows, err := database.Pool.Query(ctx,
-		`SELECT id, tunnel_id, label, local_port, public_port, protocol 
-		 FROM tunnel_ports WHERE tunnel_id = $1`,
-		tunnelID,
-	)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var ports []models.TunnelPort
-	for rows.Next() {
-		var p models.TunnelPort
-		if err := rows.Scan(&p.ID, &p.TunnelID, &p.Label, &p.LocalPort, &p.PublicPort, &p.Protocol); err != nil {
-			continue
-		}
-		ports = append(ports, p)
-	}
-	return ports, nil
-}
-
-func (h *TunnelHandler) allocatePort(ctx context.Context, excludedPorts map[int]bool) (int, error) {
+// allocateUDPPort finds a public port from the pool that is not already assigned in the DB.
+func (h *TunnelHandler) allocateUDPPort(ctx context.Context) (int, error) {
 	for port := h.config.MinPort; port <= h.config.MaxPort; port++ {
-		// specific check for excluded ports in this request
-		if excludedPorts[port] {
-			continue
-		}
-
 		var exists bool
 		database.Pool.QueryRow(ctx,
-			`SELECT EXISTS(SELECT 1 FROM tunnel_ports WHERE public_port = $1)`,
-			port,
+			`SELECT EXISTS(SELECT 1 FROM tunnels WHERE udp_public_port = $1)`, port,
 		).Scan(&exists)
-
 		if !exists {
 			return port, nil
 		}
 	}
-	return 0, fmt.Errorf("no available ports")
-}
-
-// Helper for int to string
-func itoa(i int) string {
-	return strconv.Itoa(i)
+	return 0, fmt.Errorf("no available UDP ports in range %d-%d", h.config.MinPort, h.config.MaxPort)
 }

@@ -1,74 +1,57 @@
 ![banner](https://i.imgur.com/JSBWYIt.png)
 
-# Tunnel API - VoidLink Backend
+# VoidLink Tunnels — Backend Server
 
-Backend service written in Go (Gin) for the VoidLink Tunnel System. This API manages user accounts, authenticates users, and orchestrates tunnel creation by communicating with an FRP (Fast Reverse Proxy) server.
+Backend service written in Go (Gin) for the VoidLink Tunnel System. Manages user accounts, authentication, and orchestrates tunnels via a **built-in custom TCP tunnel server** — no external FRP dependency required.
 
 ## Architecture
 
-The system consists of two main components:
-1.  **Tunnel API (This Service)**: Handles user logic, database, and generates configs for clients.
-2.  **FRP Server (External)**: The actual reverse proxy that tunnels traffic. You MUST have an FRP server running for this API to function correctly.
-
----
-
-## 1. FRP Server Configuration (REQUIRED)
-
-Before installing the API, you must set up an `frps` (FRP Server) instance on a server with a public IP.
-
-1.  Download `frp` from [GitHub Releases](https://github.com/fatedier/frp/releases).
-2.  Create a configuration file `frps.toml` on your server:
-
-```toml
-# /etc/frp/frps.toml
-
-# Address to bind the server to (0.0.0.0 allows external connections)
-bindAddr = "0.0.0.0"
-bindPort = 7000
-
-# Authentication token - MUST match FRP_TOKEN in the API config
-auth.method = "token"
-auth.token = "change-this-to-a-secure-random-token"
-
-# Dashboard (Optional, for monitoring)
-webServer.addr = "0.0.0.0"
-webServer.port = 7500
-webServer.user = "admin"
-webServer.password = "admin-password"
-
-# Allowed ports for user tunnels
-allowPorts = [
-  { start = 20000, end = 30000 }
-]
+```
+┌─────────────────────┐        HTTPS / REST API         ┌──────────────────────┐
+│   VoidLink Client   │ ──────────────────────────────> │  Tunnel API  :8080   │
+│   (Tauri Desktop)   │                                 │  (Gin HTTP)          │
+│                     │    TCP control channel :7001    │                      │
+│                     │ ──────────────────────────────> │  Tunnel Server       │
+│                     │                                 │  (built-in Go TCP)   │
+└─────────────────────┘                                 └──────────────────────┘
+                                                                  │
+                        Players connect directly                   │ routes traffic
+                        ─────────────────────────                  ▼
+                        Minecraft TCP  :25565          ┌──────────────────────┐
+                        HTTP (Dynmap)  :80             │  Local Minecraft     │
+                        UDP (voice)    :20000-30000    │  Server on client    │
+                                                       └──────────────────────┘
 ```
 
-3.  Run the FRP server:
-    ```bash
-    ./frps -c frps.toml
-    ```
+The system consists of a single self-contained binary:
+- **REST API** — user registration, login, 2FA, tunnel CRUD, password reset
+- **Built-in tunnel server** — accepts client control connections, routes Minecraft TCP, HTTP and UDP traffic
+
+No FRP, no external sidecar, no separate proxy process needed.
 
 ---
 
-## 2. Installation: Docker (Recommended)
+## What gets tunnelled
 
-The easiest way to run the API is using Docker Compose.
+Each tunnel exposes three channels:
 
-1.  **Clone the repository**:
-    ```bash
-    git clone https://github.com/MakotoPD/minedash-backend.git
-    cd minedash-backend
-    ```
+| Channel | Protocol | Public port | Purpose |
+|---------|----------|-------------|---------|
+| Minecraft | TCP | `25565` (shared, routed by subdomain) | Players connect to `subdomain.domain.com` |
+| Web map | HTTP | `80` (shared) | Dynmap, BlueMap, etc. — `subdomain.domain.com` |
+| Voice chat | UDP | Dedicated port from pool (`20000–30000`) | Simple Voice Chat, Plasmo Voice, etc. |
 
-2.  **Create `.env` file**:
-    ```bash
-    cp .env.example .env
-    ```
-    Edit `.env` and fill in your details (Database URL, JWT Secret, FRP Token from step 1).
+---
 
-3.  **Run with Docker Compose**:
-    ```bash
-    docker-compose up -d --build
-    ```
+## 1. Installation: Docker (Recommended)
+
+```bash
+git clone https://github.com/MakotoPD/VoidLink-Tunnels.git
+cd VoidLink-Tunnels
+cp .env.example .env
+# Edit .env — at minimum set JWT_SECRET and DATABASE_URL
+docker-compose up -d --build
+```
 
 ### Example `docker-compose.yml`
 
@@ -79,24 +62,30 @@ services:
   api:
     build: .
     ports:
-      - "8080:8080"
-    environment:
-      - SERVER_PORT=8080
-      - DATABASE_URL=postgres://user:pass@db:5432/tunneldb?sslmode=disable
-      - JWT_SECRET=secure-jwt-secret
-      - FRP_TOKEN=your-frp-token-here
-      - FRP_SERVER_ADDR=x.x.x.x
+      - "8080:8080"    # REST API
+      - "7001:7001"    # Tunnel control channel (TCP)
+      - "25565:25565"  # Minecraft proxy
+      - "80:80"        # HTTP proxy (Dynmap/BlueMap)
+      - "20000-20100:20000-20100/udp"  # UDP voice pool (subset)
+    env_file: .env
     depends_on:
-      - db
+      db:
+        condition: service_healthy
+    restart: unless-stopped
 
   db:
     image: postgres:16-alpine
     environment:
-      POSTGRES_USER: user
-      POSTGRES_PASSWORD: pass
+      POSTGRES_USER: tunnel
+      POSTGRES_PASSWORD: tunnel
       POSTGRES_DB: tunneldb
     volumes:
       - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tunnel"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
 volumes:
   db_data:
@@ -104,120 +93,159 @@ volumes:
 
 ---
 
-## 3. Installation: Manual (No Docker)
-
-If you prefer to run the binary directly on your system.
+## 2. Installation: Manual (No Docker)
 
 ### Prerequisites
-- **Go 1.22+** installed.
-- **PostgreSQL** database running.
+- **Go 1.22+**
+- **PostgreSQL** database
 
-### Steps
+```bash
+git clone https://github.com/MakotoPD/VoidLink-Tunnels.git
+cd VoidLink-Tunnels
+go mod download
+go build -o tunnel-api ./cmd/server/main.go
+cp .env.example .env
+# Edit .env
+./tunnel-api
+```
 
-1.  **Clone the repository**:
-    ```bash
-    git clone https://github.com/MakotoPD/minedash-backend.git
-    cd minedash-backend
-    ```
-
-2.  **Download dependencies**:
-    ```bash
-    go mod download
-    ```
-
-3.  **Build the application**:
-    ```bash
-    go build -o tunnel-api cmd/server/main.go
-    ```
-
-4.  **Set Environment Variables**:
-    You can use a `.env` file or export them in your shell.
-
-    **Linux/MacOS**:
-    ```bash
-    export DATABASE_URL="postgres://user:pass@localhost:5432/tunneldb?sslmode=disable"
-    export JWT_SECRET="your-secret"
-    export FRP_TOKEN="your-frp-token"
-    # ... any other variables
-    ```
-
-    **Windows (PowerShell)**:
-    ```powershell
-    $env:DATABASE_URL="postgres://user:pass@localhost:5432/tunneldb?sslmode=disable"
-    $env:JWT_SECRET="your-secret"
-    $env:FRP_TOKEN="your-frp-token"
-    ```
-
-5.  **Run the application**:
-    ```bash
-    ./tunnel-api
-    ```
-    (Or `.\tunnel-api.exe` on Windows)
+On Windows:
+```powershell
+go build -o tunnel-api.exe ./cmd/server/main.go
+.\tunnel-api.exe
+```
 
 ---
 
 ## Configuration Variables
 
-Configure these in your `.env` file or Docker environment.
+All variables can be set via `.env` file or environment variables.
 
-| Variable | Description | Default / Example |
-|---------|------|------------------|
-| **Server** |
-| `SERVER_PORT` | Port the API listens on | `8080` |
-| `SERVER_HOST` | Host interface to bind to | `0.0.0.0` |
-| `GIN_MODE` | Gin framework mode | `release` or `debug` |
-| **Database** |
-| `DATABASE_URL` | PostgreSQL connection string | `postgres://u:p@host:5432/db` |
-| **Security** |
-| `JWT_SECRET` | Secret key for signing tokens | ❗ **REQUIRED** (min 32 chars) |
-| `JWT_ACCESS_TTL` | Access token validity (minutes) | `60` |
-| `JWT_REFRESH_TTL` | Refresh token validity (days) | `7` |
-| **FRP Integration** |
-| `FRP_SERVER_ADDR` | Public IP/Domain of your FRP Server | `0.0.0.0` |
-| `FRP_SERVER_PORT` | FRP Server Bind Port (Control Port) | `7000` |
-| `FRP_TOKEN` | Auth Token (Must match `frps.toml`) | ❗ **REQUIRED** |
-| **Tunnels Config** |
-| `MIN_PORT` | Start of port range for allocation | `20000` |
-| `MAX_PORT` | End of port range for allocation | `30000` |
-| `MAX_TUNNELS` | Tunnels allowed per user | `3` |
-| `DOMAIN` | Base domain for subdomains | `eu.makoto.com.pl` |
+| Variable | Description | Default |
+|----------|-------------|---------|
+| **Server** | | |
+| `SERVER_PORT` | REST API port | `8080` |
+| `SERVER_HOST` | Bind interface | `0.0.0.0` |
+| `GIN_MODE` | Gin mode (`release`/`debug`) | `release` |
+| **Database** | | |
+| `DATABASE_URL` | PostgreSQL connection string | `postgres://tunnel:tunnel@localhost:5432/tunneldb` |
+| **Security** | | |
+| `JWT_SECRET` | Token signing secret | ❗ **REQUIRED** (min 32 chars) |
+| `JWT_ACCESS_TTL` | Access token TTL (minutes) | `60` |
+| `JWT_REFRESH_TTL` | Refresh token TTL (days) | `7` |
+| **Tunnel Server** | | |
+| `TUNNEL_PORT` | Client control connection port | `7001` |
+| `MC_PROXY_PORT` | Shared Minecraft TCP listener | `25565` |
+| `HTTP_PROXY_PORT` | Shared HTTP proxy listener | `80` |
+| **Tunnels** | | |
+| `MIN_PORT` | Start of UDP port pool | `20000` |
+| `MAX_PORT` | End of UDP port pool | `30000` |
+| `MAX_TUNNELS` | Max tunnels per user | `3` |
+| `DOMAIN` | Base domain for subdomains | `eu.yourdomain.com` |
 | `REGION` | Region identifier | `eu` |
-| **SMTP / Mail** |
-| `SMTP_HOST` | SMTP Host (e.g. Mailgun/SendGrid) | - |
-| `SMTP_PORT` | SMTP Port | `587` |
-| `SMTP_USER` | SMTP Username | - |
-| `SMTP_PASSWORD`| SMTP Password | - |
-| `SMTP_FROM` | Email sender address | `noreply@yourdomain.com` |
+| **SMTP (optional — password reset)** | | |
+| `SMTP_HOST` | SMTP server host | — |
+| `SMTP_PORT` | SMTP port | `587` |
+| `SMTP_USER` | SMTP username | — |
+| `SMTP_PASSWORD` | SMTP password | — |
+| `SMTP_FROM` | Sender address | `noreply@yourdomain.com` |
+
+---
+
+## Reverse Proxy / HTTPS (nginx example)
+
+The API runs on HTTP internally. Use nginx or Caddy for TLS termination.
+
+```nginx
+server {
+    listen 443 ssl;
+    server_name tunnel.yourdomain.com;
+
+    ssl_certificate     /etc/letsencrypt/live/tunnel.yourdomain.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/tunnel.yourdomain.com/privkey.pem;
+
+    location / {
+        proxy_pass http://127.0.0.1:8080;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # CORS — allow all origins (the VoidLink desktop app)
+        add_header Access-Control-Allow-Origin  *;
+        add_header Access-Control-Allow-Methods "GET, POST, PUT, DELETE, OPTIONS";
+        add_header Access-Control-Allow-Headers "Authorization, Content-Type";
+
+        if ($request_method = OPTIONS) {
+            return 204;
+        }
+    }
+}
+```
+
+> **Note:** The tunnel control port (`7001`) and Minecraft proxy (`25565`) are raw TCP — they must be exposed directly, not via HTTP reverse proxy.
 
 ---
 
 ## API Endpoints
 
 ### Public
-- `GET /health` - Service Health Check
-- `GET /ping` - Simple Ping
-- `POST /api/auth/register` - Register new account
-- `POST /api/auth/login` - Login (returns Access & Refresh Token)
-- `POST /api/auth/refresh` - Refresh token
-- `POST /api/auth/logout` - Logout
-- `POST /api/auth/forgot-password` - Request password reset
-- `POST /api/auth/reset-password` - Reset password with code
 
-### Protected (Requires `Authorization: Bearer <token>`)
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/health` | Health check |
+| `GET` | `/ping` | Simple ping |
+| `POST` | `/api/auth/register` | Register new account |
+| `POST` | `/api/auth/login` | Login (returns access + refresh token) |
+| `POST` | `/api/auth/refresh` | Refresh access token |
+| `POST` | `/api/auth/logout` | Logout |
+| `POST` | `/api/auth/forgot-password` | Request password reset email |
+| `POST` | `/api/auth/reset-password` | Reset password with verification code |
+
+### Protected (requires `Authorization: Bearer <token>`)
 
 #### User
-- `GET /api/auth/me` - Get current user info
 
-#### Two-Factor Authentication (2FA)
-- `POST /api/auth/2fa/setup` - Generate TOTP secret
-- `POST /api/auth/2fa/verify` - Activate 2FA
-- `POST /api/auth/2fa/disable` - Disable 2FA
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/auth/me` | Get current user info |
+
+#### Two-Factor Authentication
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/api/auth/2fa/setup` | Generate TOTP secret + QR code |
+| `POST` | `/api/auth/2fa/verify` | Activate 2FA |
+| `POST` | `/api/auth/2fa/disable` | Disable 2FA |
 
 #### Tunnels
-- `GET /api/tunnels` - List my tunnels
-- `POST /api/tunnels` - Create tunnel
-- `GET /api/tunnels/:id` - Get details
-- `DELETE /api/tunnels/:id` - Delete tunnel
-- `POST /api/tunnels/:id/start` - Start tunnel
-- `POST /api/tunnels/:id/stop` - Stop tunnel
-- `GET /api/tunnels/:id/config` - Get FRPC configuration
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/tunnels` | List my tunnels |
+| `POST` | `/api/tunnels` | Create tunnel |
+| `GET` | `/api/tunnels/:id` | Get tunnel details |
+| `DELETE` | `/api/tunnels/:id` | Delete tunnel |
+| `POST` | `/api/tunnels/:id/start` | Mark tunnel active + notify server |
+| `POST` | `/api/tunnels/:id/stop` | Mark tunnel inactive |
+
+---
+
+## Tunnel Protocol
+
+The built-in tunnel server uses a simple newline-delimited text protocol on port `7001`:
+
+```
+Client → Server:  AUTH <jwt_token> <tunnel_id>\n
+Server → Client:  OK\n  |  ERROR <message>\n
+
+Server → Client:  OPEN <conn_id> <local_port>\n   (new TCP connection to proxy)
+Client → Server:  DATA <conn_id>\n                 (open data channel, then raw bytes)
+
+Server → Client:  UDP_PKT <conn_id> <local_port> <hex_payload>\n
+Client → Server:  UDP_REPLY <conn_id> <hex_payload>\n
+
+Server ↔ Client:  PING\n / PONG\n                  (keepalive, every 30s)
+```
+
+The VoidLink desktop client (Tauri) implements this protocol natively in Rust — no external client binary needed.

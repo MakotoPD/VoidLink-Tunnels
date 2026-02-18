@@ -83,6 +83,14 @@ type Server struct {
 
 	// UDP voice chat: public_port → net.PacketConn (active listeners)
 	udpListeners sync.Map
+
+	// UDP voice chat: playerAddr → *udpPlayerEntry (persistent, for routing UDP_REPLY back to player)
+	udpPlayerMap sync.Map
+}
+
+type udpPlayerEntry struct {
+	pc   net.PacketConn
+	addr net.Addr
 }
 
 func NewServer(jwtSecret []byte, tunnelPort, mcProxyPort, httpProxyPort int, domain string, minPort, maxPort int) *Server {
@@ -299,16 +307,14 @@ func (s *Server) readControlLoop(client *ClientConn) {
 				continue
 			}
 			connID := parts[1]
-			hexData := parts[2]
-			data, err := hex.DecodeString(hexData)
+			data, err := hex.DecodeString(parts[2])
 			if err != nil {
 				continue
 			}
-			if ch, ok := client.udpReplyCh.Load(connID); ok {
-				select {
-				case ch.(chan []byte) <- data:
-				default:
-				}
+			// Route reply back to player using persistent session map
+			if entryRaw, ok := s.udpPlayerMap.Load(connID); ok {
+				entry := entryRaw.(*udpPlayerEntry)
+				_, _ = entry.pc.WriteTo(data, entry.addr)
 			}
 		}
 	}
@@ -356,22 +362,12 @@ func (s *Server) handleUDPPacket(pc net.PacketConn, addr net.Addr, data []byte, 
 	client := clientRaw.(*ClientConn)
 
 	connID := addr.String()
+
+	// Register/refresh persistent player entry so UDP_REPLY can find the right PacketConn+addr
+	s.udpPlayerMap.Store(connID, &udpPlayerEntry{pc: pc, addr: addr})
+
 	hexData := hex.EncodeToString(data)
-
-	replyCh := make(chan []byte, 16)
-	client.udpReplyCh.Store(connID, replyCh)
-	defer client.udpReplyCh.Delete(connID)
-
-	if err := client.send(fmt.Sprintf("UDP_PKT %s %d %s", connID, localPort, hexData)); err != nil {
-		return
-	}
-
-	select {
-	case reply := <-replyCh:
-		pc.WriteTo(reply, addr)
-	case <-time.After(5 * time.Second):
-		// No reply — fine for voice chat (often one-way)
-	}
+	_ = client.send(fmt.Sprintf("UDP_PKT %s %d %s", connID, localPort, hexData))
 }
 
 // ---- Data Connection Handler ----
@@ -429,7 +425,6 @@ type ClientConn struct {
 	writer     *bufio.Writer
 	mu         sync.Mutex
 	pendingTCP sync.Map // connID → chan net.Conn
-	udpReplyCh sync.Map // connID → chan []byte
 }
 
 func (c *ClientConn) send(msg string) error {

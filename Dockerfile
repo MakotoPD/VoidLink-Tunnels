@@ -1,14 +1,20 @@
 # Build stage
-FROM golang:1.23-alpine AS builder
+FROM golang:1.24-alpine AS builder
 
 WORKDIR /app
 
 COPY go.mod go.sum ./
-RUN go mod download
+
+# Cache Go modules between builds
+RUN --mount=type=cache,target=/go/pkg/mod \
+    go mod download
 
 COPY . .
 
-RUN CGO_ENABLED=0 GOOS=linux go build -o tunnel-api ./cmd/server
+# Cache Go build artifacts between builds (incremental compilation)
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o tunnel-api ./cmd/server
 
 # Runtime image
 FROM alpine:3.19
@@ -27,13 +33,9 @@ RUN chown -R appuser:appgroup /app
 
 USER appuser
 
-# REST API
 EXPOSE 8080
-# Tunnel control channel (VoidLink desktop client connects here)
 EXPOSE 7001
-# Shared Minecraft TCP proxy
 EXPOSE 25565
-# Shared HTTP proxy (Dynmap / BlueMap)
 EXPOSE 8081
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \

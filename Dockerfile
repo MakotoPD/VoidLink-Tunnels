@@ -7,7 +7,7 @@ COPY go.mod go.sum ./
 
 # Cache Go modules between builds
 RUN --mount=type=cache,target=/go/pkg/mod \
-    go mod download -x
+    go mod download
 
 COPY . .
 

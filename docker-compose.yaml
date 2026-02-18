@@ -8,6 +8,8 @@ services:
       - "${TUNNEL_PORT:-7001}:${TUNNEL_PORT:-7001}"
       # Raw TCP — direct host port, bypasses Traefik (Minecraft players)
       - "${MC_PROXY_PORT:-25565}:${MC_PROXY_PORT:-25565}"
+      # Raw TCP — HTTP proxy (Dynmap / BlueMap), bypasses Traefik
+      - "${HTTP_PROXY_PORT:-8081}:${HTTP_PROXY_PORT:-8081}"
       # UDP voice chat port pool
       - "${MIN_PORT:-20000}-${MAX_PORT:-20100}:${MIN_PORT:-20000}-${MAX_PORT:-20100}/udp"
     labels:

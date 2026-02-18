@@ -190,6 +190,75 @@ func (h *TunnelHandler) Get(c *gin.Context) {
 	c.JSON(http.StatusOK, t.ToResponse(h.config.Domain))
 }
 
+// PATCH /api/tunnels/:id
+func (h *TunnelHandler) Update(c *gin.Context) {
+	tunnelID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid tunnel ID"})
+		return
+	}
+
+	var req models.UpdateTunnelRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request: " + err.Error()})
+		return
+	}
+
+	userID, _ := middleware.GetUserID(c)
+	ctx := context.Background()
+
+	var t models.Tunnel
+	err = database.Pool.QueryRow(ctx,
+		`SELECT id, subdomain, is_active, name, mc_local_port, http_local_port, udp_local_port, udp_public_port
+		 FROM tunnels WHERE id = $1 AND user_id = $2`,
+		tunnelID, userID,
+	).Scan(&t.ID, &t.Subdomain, &t.IsActive, &t.Name, &t.MCLocalPort, &t.HTTPLocalPort, &t.UDPLocalPort, &t.UDPPublicPort)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Tunnel not found"})
+		return
+	}
+
+	if t.IsActive {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Stop the tunnel before editing it"})
+		return
+	}
+
+	// Apply only provided fields
+	if req.Name != nil {
+		if len(*req.Name) < 1 || len(*req.Name) > 100 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Name must be 1-100 characters"})
+			return
+		}
+		t.Name = *req.Name
+	}
+	if req.MCLocalPort != nil {
+		t.MCLocalPort = *req.MCLocalPort
+	}
+	if req.HTTPLocalPort != nil {
+		if *req.HTTPLocalPort == 0 {
+			t.HTTPLocalPort = nil
+		} else {
+			t.HTTPLocalPort = req.HTTPLocalPort
+		}
+	}
+	if req.UDPLocalPort != nil {
+		t.UDPLocalPort = *req.UDPLocalPort
+	}
+
+	_, err = database.Pool.Exec(ctx,
+		`UPDATE tunnels SET name=$1, mc_local_port=$2, http_local_port=$3, udp_local_port=$4, updated_at=NOW()
+		 WHERE id = $5`,
+		t.Name, t.MCLocalPort, t.HTTPLocalPort, t.UDPLocalPort, tunnelID,
+	)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update tunnel"})
+		return
+	}
+
+	t.Region = h.config.Region
+	c.JSON(http.StatusOK, t.ToResponse(h.config.Domain))
+}
+
 // DELETE /api/tunnels/:id
 func (h *TunnelHandler) Delete(c *gin.Context) {
 	tunnelID, err := uuid.Parse(c.Param("id"))

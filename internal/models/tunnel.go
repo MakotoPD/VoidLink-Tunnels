@@ -82,6 +82,13 @@ type CreateTunnelRequest struct {
 	UDPLocalPort  int    `json:"udp_local_port"`  // defaults to 24454
 }
 
+type UpdateTunnelRequest struct {
+	Name          *string `json:"name"`
+	MCLocalPort   *int    `json:"mc_local_port"`
+	HTTPLocalPort *int    `json:"http_local_port"` // set to 0 to disable HTTP
+	UDPLocalPort  *int    `json:"udp_local_port"`
+}
+
 type TunnelListResponse struct {
 	Tunnels []TunnelResponse `json:"tunnels"`
 	Count   int              `json:"count"`

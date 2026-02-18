@@ -76,7 +76,7 @@ func main() {
 	// CORS middleware
 	r.Use(func(c *gin.Context) {
 		c.Header("Access-Control-Allow-Origin", "*")
-		c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
 		c.Header("Access-Control-Allow-Headers", "Authorization, Content-Type")
 		if c.Request.Method == "OPTIONS" {
 			c.AbortWithStatus(204)
@@ -113,6 +113,7 @@ func main() {
 			protected.GET("/tunnels", tunnelHandler.List)
 			protected.POST("/tunnels", tunnelHandler.Create)
 			protected.GET("/tunnels/:id", tunnelHandler.Get)
+			protected.PATCH("/tunnels/:id", tunnelHandler.Update)
 			protected.DELETE("/tunnels/:id", tunnelHandler.Delete)
 			protected.POST("/tunnels/:id/start", tunnelHandler.Start)
 			protected.POST("/tunnels/:id/stop", tunnelHandler.Stop)

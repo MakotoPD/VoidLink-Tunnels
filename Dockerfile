@@ -39,7 +39,7 @@ EXPOSE 25565
 EXPOSE 8081
 EXPOSE 20000-30000/udp
 
-HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+HEALTHCHECK --interval=600s --timeout=5s --start-period=10s --retries=3 \
     CMD curl -f http://localhost:8080/health || exit 1
 
 CMD ["./tunnel-api"]

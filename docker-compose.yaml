@@ -5,6 +5,8 @@ services:
     restart: unless-stopped
     ports:
       # Raw TCP — direct host port, bypasses Traefik (VoidLink desktop client)
+      - "20000-30000:20000-30000"
+
       - "${TUNNEL_PORT:-7001}:${TUNNEL_PORT:-7001}"
       # Raw TCP — direct host port, bypasses Traefik (Minecraft players)
       - "${MC_PROXY_PORT:-25565}:${MC_PROXY_PORT:-25565}"

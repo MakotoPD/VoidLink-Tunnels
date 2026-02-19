@@ -10,6 +10,7 @@ services:
       - "${MC_PROXY_PORT:-25565}:${MC_PROXY_PORT:-25565}"
       # Raw TCP — HTTP proxy (Dynmap / BlueMap), bypasses Traefik
       - "${HTTP_PROXY_PORT:-8081}:${HTTP_PROXY_PORT:-8081}"
+      - "20000-30000/udp"
       # UDP voice chat — ports added individually to avoid slow Docker range binding
     labels:
       # Traefik — REST API (HTTPS via domain)

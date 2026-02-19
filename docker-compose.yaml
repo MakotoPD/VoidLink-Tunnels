@@ -10,7 +10,6 @@ services:
       - "${MC_PROXY_PORT:-25565}:${MC_PROXY_PORT:-25565}"
       # Raw TCP — HTTP proxy (Dynmap / BlueMap), bypasses Traefik
       - "${HTTP_PROXY_PORT:-8081}:${HTTP_PROXY_PORT:-8081}"
-      - "20000-30000/udp"
       # UDP voice chat — ports added individually to avoid slow Docker range binding
     labels:
       # Traefik — REST API (HTTPS via domain)
@@ -50,39 +49,13 @@ services:
       - SMTP_USER=${SMTP_USER:-}
       - SMTP_PASSWORD=${SMTP_PASSWORD:-}
       - SMTP_FROM=${SMTP_FROM:-noreply@yourdomain.com}
-    depends_on:
-      postgres:
-        condition: service_healthy
-    networks:
-      - tunnel-network
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
-      interval: 30s
+      interval: 600s
       timeout: 10s
       retries: 3
       start_period: 10s
 
-  postgres:
-    image: postgres:18-alpine
-    container_name: tunnel-postgres
-    restart: unless-stopped
-    environment:
-      - POSTGRES_USER=${POSTGRES_USER:-postgres}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-tunnelpass}
-      - POSTGRES_DB=${POSTGRES_DB:-tunneldb}
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    networks:
-      - tunnel-network
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-tunneldb}"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-networks:
-  tunnel-network:
-    driver: bridge
 
 volumes:
   postgres_data:

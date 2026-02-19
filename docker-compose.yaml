@@ -24,8 +24,7 @@ services:
       - SERVER_HOST=0.0.0.0
 
       # Database
-      - DATABASE_URL=postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-tunnelpass}@postgres:5432/${POSTGRES_DB:-tunneldb}?sslmode=disable
-
+      - DATABASE_URL=${DATABASE_URL:-postgresql://user:password@db:5432/tunnels}
       # JWT
       - JWT_SECRET=${JWT_SECRET:-changeme_jwt_secret_min32chars_here}
       - JWT_ACCESS_TTL=${JWT_ACCESS_TTL:-60}
@@ -55,7 +54,3 @@ services:
       timeout: 10s
       retries: 3
       start_period: 10s
-
-
-volumes:
-  postgres_data:

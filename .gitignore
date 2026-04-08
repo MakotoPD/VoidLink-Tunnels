@@ -40,3 +40,5 @@ frp_*_*/
 
 # Docker
 .docker/
+
+.claude/

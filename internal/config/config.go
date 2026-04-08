@@ -55,7 +55,7 @@ func Load() *Config {
 		// Built-in tunnel server
 		TunnelPort:    getEnvInt("TUNNEL_PORT", 7001),
 		MCProxyPort:   getEnvInt("MC_PROXY_PORT", 25565),
-		HTTPProxyPort: getEnvInt("HTTP_PROXY_PORT", 80),
+		HTTPProxyPort: getEnvInt("HTTP_PROXY_PORT", 8081),
 
 		// Tunnels
 		MinPort:    getEnvInt("MIN_PORT", 20000),

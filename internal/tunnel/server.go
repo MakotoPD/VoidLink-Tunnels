@@ -471,10 +471,16 @@ func relay(a, b net.Conn) {
 				break
 			}
 		}
+		// Half-close: signal the other direction that src is done
+		if tc, ok := dst.(*net.TCPConn); ok {
+			tc.CloseWrite()
+		}
 		done <- struct{}{}
 	}
 	go cp(a, b)
 	go cp(b, a)
+	// Wait for both directions to finish before closing connections
+	<-done
 	<-done
 	a.Close()
 	b.Close()

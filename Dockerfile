@@ -4,17 +4,12 @@ FROM golang:1.24-alpine AS builder
 WORKDIR /app
 
 COPY go.mod go.sum ./
-
-# Cache Go modules between builds
-RUN --mount=type=cache,target=/go/pkg/mod \
-    go mod download
-
+COPY vendor ./vendor
 COPY . .
 
-# Cache Go build artifacts between builds (incremental compilation)
-RUN --mount=type=cache,target=/go/pkg/mod \
-    --mount=type=cache,target=/root/.cache/go-build \
-    CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o tunnel-api ./cmd/server
+# No network needed — all deps are in vendor/
+RUN --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 GOOS=linux go build -mod=vendor -ldflags="-s -w" -o tunnel-api ./cmd/server
 
 # Runtime image
 FROM alpine:3.19
@@ -37,7 +32,7 @@ EXPOSE 7001
 EXPOSE 25565
 EXPOSE 8081
 
-HEALTHCHECK --interval=600s --timeout=5s --start-period=10s --retries=3 \
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
     CMD curl -f http://localhost:8080/health || exit 1
 
 CMD ["./tunnel-api"]

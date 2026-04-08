@@ -8,8 +8,7 @@ COPY vendor ./vendor
 COPY . .
 
 # No network needed — all deps are in vendor/
-RUN --mount=type=cache,target=/root/.cache/go-build \
-    CGO_ENABLED=0 GOOS=linux go build -mod=vendor -ldflags="-s -w" -o tunnel-api ./cmd/server
+RUN CGO_ENABLED=0 GOOS=linux go build -mod=vendor -tags=jsoniter -ldflags="-s -w" -o tunnel-api ./cmd/server
 
 # Runtime image
 FROM alpine:3.19

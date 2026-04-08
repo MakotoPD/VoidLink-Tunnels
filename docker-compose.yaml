@@ -27,8 +27,8 @@ services:
       - SERVER_PORT=8080
       - SERVER_HOST=0.0.0.0
 
-      # Database — derived from postgres service vars so you only define them once
-      - DATABASE_URL=postgres://${POSTGRES_USER:-tunnel}:${POSTGRES_PASSWORD:-tunnel}@db:5432/${POSTGRES_DB:-tunneldb}?sslmode=disable
+      # Database
+      - DATABASE_URL=${DATABASE_URL:-postgres://tunnel:tunnel@db:5432/tunneldb?sslmode=disable}
 
       # JWT
       - JWT_SECRET=${JWT_SECRET:-changeme_jwt_secret_min32chars_here}

@@ -27,7 +27,6 @@ RUN addgroup -g 1001 -S appgroup && \
     adduser -u 1001 -S appuser -G appgroup
 
 COPY --from=builder /app/tunnel-api .
-COPY --from=builder /app/wordlist ./wordlist
 
 RUN chown -R appuser:appgroup /app
 

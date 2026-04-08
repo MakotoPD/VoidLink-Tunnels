@@ -3,6 +3,9 @@ services:
     build: .
     container_name: tunnel-api
     restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
     ports:
       # Raw TCP — direct host port, bypasses Traefik (VoidLink desktop client)
       - "${TUNNEL_PORT:-7001}:${TUNNEL_PORT:-7001}"
@@ -24,8 +27,9 @@ services:
       - SERVER_PORT=8080
       - SERVER_HOST=0.0.0.0
 
-      # Database
-      - DATABASE_URL=${DATABASE_URL:-postgresql://user:password@db:5432/tunnels}
+      # Database — derived from postgres service vars so you only define them once
+      - DATABASE_URL=postgres://${POSTGRES_USER:-tunnel}:${POSTGRES_PASSWORD:-tunnel}@db:5432/${POSTGRES_DB:-tunneldb}?sslmode=disable
+
       # JWT
       - JWT_SECRET=${JWT_SECRET:-changeme_jwt_secret_min32chars_here}
       - JWT_ACCESS_TTL=${JWT_ACCESS_TTL:-60}
@@ -51,7 +55,27 @@ services:
       - SMTP_FROM=${SMTP_FROM:-noreply@yourdomain.com}
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
-      interval: 600s
+      interval: 30s
       timeout: 10s
       retries: 3
+      start_period: 15s
+
+  db:
+    image: postgres:16-alpine
+    container_name: tunnel-db
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-tunnel}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-tunnel}
+      - POSTGRES_DB=${POSTGRES_DB:-tunneldb}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-tunnel} -d ${POSTGRES_DB:-tunneldb}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
       start_period: 10s
+
+volumes:
+  postgres_data:

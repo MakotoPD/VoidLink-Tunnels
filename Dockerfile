@@ -9,6 +9,8 @@ RUN addgroup -g 1001 -S appgroup && \
 
 COPY --chown=appuser:appgroup tunnel-api-linux ./tunnel-api
 
+RUN chmod +x ./tunnel-api
+
 USER appuser
 
 EXPOSE 8080

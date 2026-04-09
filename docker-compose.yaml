@@ -6,6 +6,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    args:
+        - OPPORTS=20000-21000
     ports:
       # Raw TCP — direct host port, bypasses Traefik (VoidLink desktop client)
       - "${TUNNEL_PORT:-7001}:${TUNNEL_PORT:-7001}"

@@ -13,8 +13,6 @@ services:
       - "${MC_PROXY_PORT:-25565}:${MC_PROXY_PORT:-25565}"
       # Raw TCP — HTTP proxy (Dynmap / BlueMap), bypasses Traefik
       - "${HTTP_PROXY_PORT:-8081}:${HTTP_PROXY_PORT:-8081}"
-      # UDP voice chat ports — expose the configured pool range
-      - "${MIN_PORT:-20000}-${MAX_PORT:-20100}:${MIN_PORT:-20000}-${MAX_PORT:-20100}/udp"
     labels:
       # Traefik — REST API (HTTPS via domain)
       - "traefik.enable=true"

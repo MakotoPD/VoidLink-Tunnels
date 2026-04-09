@@ -7,9 +7,7 @@ WORKDIR /app
 RUN addgroup -g 1001 -S appgroup && \
     adduser -u 1001 -S appuser -G appgroup
 
-COPY tunnel-api-linux ./tunnel-api
-
-RUN chown -R appuser:appgroup /app
+COPY --chown=appuser:appgroup tunnel-api-linux ./tunnel-api
 
 USER appuser
 

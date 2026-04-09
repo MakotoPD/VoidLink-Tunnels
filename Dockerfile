@@ -1,16 +1,3 @@
-# Build stage
-FROM golang:1.24-alpine AS builder
-
-WORKDIR /app
-
-COPY go.mod go.sum ./
-COPY vendor ./vendor
-COPY . .
-
-# No network needed — all deps are in vendor/
-RUN CGO_ENABLED=0 GOOS=linux go build -mod=vendor -tags=jsoniter -ldflags="-s -w" -o tunnel-api ./cmd/server
-
-# Runtime image
 FROM alpine:3.19
 
 RUN apk --no-cache add ca-certificates tzdata curl
@@ -20,7 +7,7 @@ WORKDIR /app
 RUN addgroup -g 1001 -S appgroup && \
     adduser -u 1001 -S appuser -G appgroup
 
-COPY --from=builder /app/tunnel-api .
+COPY tunnel-api-linux ./tunnel-api
 
 RUN chown -R appuser:appgroup /app
 

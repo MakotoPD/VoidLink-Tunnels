@@ -1,7 +1,7 @@
 services:
-  tunnel-api:
+  tunnel-backend:
     build: .
-    container_name: tunnel-api
+    container_name: tunnel-backend
     restart: unless-stopped
     depends_on:
       db:
